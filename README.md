@@ -64,4 +64,18 @@ for the séance status (concierge skill).
 
 ## File contract (Poltergeist / external tools)
 
-Finalized in Task 6.
+The workspace directory is the API. Rules:
+
+1. **External tools write ONLY to `inbox/`.** Everything else is read-only from the outside. The manager tick is the sole writer of orchestration state; role agents write only their own story/ledger. This is what makes a UI unable to corrupt a run.
+2. An inbox file **with `id:` frontmatter** is a requirement (schema: `templates/requirement.md`). **Without `id:`** it's a plain-English steering note.
+3. To render status, read (all stable schemas):
+   - `state/requirements/<id>.md` — frontmatter `id, title, status: inbox|planning|planned|done, priority`, optional `blocked_reason`
+   - `state/stories/<id>.md` — frontmatter `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked, deps, oracle, branch, attempts, model_hint`; body `## Task` + `## Attempts ledger`
+   - `state/agents/<id>.md` — frontmatter `id, role, pid, story, requirement, started_at, model`; liveness = `kill -0 pid`
+   - `attention/*.md` — the human queue (presence = needs a decision)
+   - `journal/ticks.ndjson` — one JSON object per line: `{ts, reaped, killed, spawned:{planner,builder,critic}, backlog, in_flight, blocked, inbox}`; human actions appear as `{ts, human: true, action, target}`
+   - `journal/digest-YYYY-MM-DD.md` — daily human-readable summary
+4. **Start/stop** is process management, not files: run `bin/heartbeat.sh <workspace>` (or load/unload the launchd job). Stopping the heartbeat stops new ticks; in-flight agents finish on their own.
+5. Liveness signal for UIs: newest `ts` in `ticks.ndjson`. Stale > 15 min while work is pending means the heartbeat is down.
+
+Poltergeist's "Summon" = write requirement file to `inbox/` + ensure heartbeat is running. Poltergeist's status panel = fs.watch on `state/`, `attention/`, `journal/`.
