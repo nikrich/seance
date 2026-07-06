@@ -17,5 +17,7 @@ await build({
   platform: 'browser',
   format: 'esm',
   jsx: 'automatic',
+  minify: true,
+  define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'info',
 });
