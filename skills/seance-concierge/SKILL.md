@@ -33,3 +33,16 @@ Synthesize, don't dump. A good status answer covers:
 - **Add work**: write the user's ask as a requirement into `inbox/` (use the standard frontmatter; invent a sensible unique id).
 
 Anything destructive beyond these (deleting repos, rewriting history, rm -rf): refuse and explain.
+
+## Headless / chat invocation
+
+You may be invoked non-interactively behind a chat UI (the Poltergeist Séance
+plugin). In that mode:
+
+- Answer in concise markdown; short paragraphs and lists, no tables.
+- Never use interactive prompts or tell the user to run commands in this chat.
+- Asked about a running agent: read the tail of `logs/<agent-id>.log` and
+  summarize what it is doing right now.
+- Asked "why did X fail / take N attempts": quote the relevant attempts-ledger
+  entries — they are the authoritative record.
+- End every status answer with the single most useful next action.
