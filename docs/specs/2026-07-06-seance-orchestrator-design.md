@@ -1,8 +1,8 @@
-# Foreman — Autonomous Development Agent Orchestrator
+# Séance — Autonomous Development Agent Orchestrator
 
 **Date:** 2026-07-06
 **Status:** Approved design
-**Working name:** Foreman (rename freely; nothing hardcodes the name except paths)
+**Name:** Séance (slug: `seance`) — you summon the spirits and put them to work. Part of the ghost ecosystem (ghost-brain / Poltergeist / Hungry Ghost).
 
 ## What it is
 
@@ -43,7 +43,7 @@ Spawned agents are detached `claude -p` subprocesses (`nohup ... &`), each logge
 Central, one directory per workspace, multi-repo from day one:
 
 ```
-~/foreman/<workspace>/
+~/seance/<workspace>/
   config.yaml            # see below
   inbox/                 # drop .md requirement or steering note; next tick consumes
   inbox/processed/       # consumed inbox items (audit trail)
@@ -97,7 +97,7 @@ repo: bff-web
 status: pending    # pending | building | verifying | approved | merged | pr_open | blocked
 deps: []           # story ids that must be merged first
 oracle: "mvn -q verify && bruno run tests/claims --env local"
-branch: foreman/FOO-123-s1
+branch: seance/FOO-123-s1
 attempts: 0
 model_hint: default
 ---
@@ -157,7 +157,7 @@ When the backlog is dry, proposes follow-up work (bug sweeps, refactor passes) i
 WS="$1"; cd "$WS"
 RL_SLEEP=0
 while true; do
-  claude -p "Run one foreman manager tick." \
+  claude -p "Run one seance manager tick." \
     --permission-mode bypassPermissions \
     >> logs/manager.log 2>&1
   status=$?
@@ -174,16 +174,27 @@ done
 
 ## Build order
 
-1. Scaffold: repo layout, `config.yaml` schema, `heartbeat.sh`, `foreman init` doc (a README, not a CLI).
+1. Scaffold: repo layout, `config.yaml` schema, `heartbeat.sh`, `seance init` doc (a README, not a CLI).
 2. `manager` + `planner` skills; verify a tick runs end-to-end with a fake requirement (no builders yet).
 3. `builder` + `critic`; end-to-end on a toy requirement against a throwaway repo — watch a story go pending → merged unattended.
 4. `concierge` + daily digest; then a real multi-hour soak run.
 
-Built inline (no subagents). Repo: `~/development/nikrich/foreman`.
+Built inline (no subagents). Repo: `~/development/nikrich/seance`.
+
+## Poltergeist integration ("hold a séance" from the second brain)
+
+Poltergeist (ghost-brain/desktop, Electron) gets a thin code plugin to kick off and observe coding sessions. **The workspace directory IS the API** — Poltergeist never talks to agents, only to files:
+
+- **Summon:** create/pick a workspace, write a requirement `.md` into `inbox/`, start the heartbeat (spawn `heartbeat.sh` or install a launchd job `com.ghostbrain.seance.<workspace>`, reusing the patterns in `ghost-brain/orchestration/launchd/`). Stop = unload/kill.
+- **Status panel (read-only):** watch `state/stories/`, `attention/`, and `journal/` via fs.watch; render backlog, in-flight stories, blocked/attention items, and the daily digest.
+- **Steering** stays out of the UI in v1 — it's inbox notes or the concierge skill in a terminal.
+
+Contract rules that keep the coupling safe: Poltergeist writes ONLY to `inbox/`; everything else is read-only. The Séance repo owns the directory-layout contract (documented in its README); the Poltergeist plugin (a `seance.ts` main-process module + one renderer screen) lives in the ghost-brain repo and is built as a follow-up project against that contract.
 
 ## Out of scope (v1)
 
 - Semantic memory / mempalace integration
-- hive-ide UI integration (the file-based state makes a read-only viewer trivial later)
+- The Poltergeist UI work itself (separate project in ghost-brain, built against the file contract above)
+- hive-ide UI integration (same file-based contract makes a viewer trivial later)
 - Jira intake (a later inbox adapter; intake is files-only in v1)
 - groom role
