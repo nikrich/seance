@@ -2,7 +2,7 @@
 // mount(el, api) and bundle our own React. Styling uses the host's theme CSS
 // variables (api.theme) with dark fallbacks so the screen blends into the app.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 const COLUMNS = [
@@ -58,6 +58,281 @@ function Card({ children, theme, tone }) {
   );
 }
 
+const KIND_GLYPH = {
+  'tick-spawn': '⚡',
+  'tick-reap': '↩',
+  'tick-kill': '☠',
+  human: '☺',
+  handoff: '⇢',
+  rejected: '✗',
+  approved: '✓',
+  blocked: '⛔',
+  'agent-died': '☠',
+  attention: '⚠',
+};
+
+function UnderTheHood({ api, ws, theme, input }) {
+  const [events, setEvents] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [logText, setLogText] = useState('');
+  const nextByteRef = useRef(0);
+  const preRef = useRef(null);
+  const atBottomRef = useRef(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      setEvents(await api.ipc.invoke('activity', ws, 100));
+      setAgents(await api.ipc.invoke('agents:list', ws));
+    } catch {
+      // feed is best-effort; next tick refresh will retry
+    }
+  }, [api, ws]);
+
+  useEffect(() => {
+    void refresh();
+    const off = api.ipc.on('changed', (p) => {
+      if (p?.wsPath === ws) void refresh();
+    });
+    const t = setInterval(() => void refresh(), 15000);
+    return () => {
+      off();
+      clearInterval(t);
+    };
+  }, [api, ws, refresh]);
+
+  // log tailing for the selected agent
+  useEffect(() => {
+    if (!selected) return;
+    let stop = false;
+    nextByteRef.current = 0;
+    setLogText('');
+    const pull = async () => {
+      try {
+        const r = await api.ipc.invoke('log:read', ws, selected, nextByteRef.current);
+        if (stop) return;
+        if (r.chunk) {
+          nextByteRef.current = r.nextByte;
+          setLogText((prev) => (prev + r.chunk).slice(-400000));
+        }
+      } catch {
+        // ignore transient read errors
+      }
+    };
+    void pull();
+    const t = setInterval(pull, 2000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [api, ws, selected]);
+
+  useEffect(() => {
+    const el = preRef.current;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [logText]);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: selected ? '5fr 7fr' : '1fr', gap: 12, minHeight: 0, flex: 1 }}>
+      <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
+        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: theme.ink2 }}>
+          agents
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {agents.slice(0, 12).map((a) => (
+            <button
+              key={a.id}
+              onClick={() => setSelected(a.id === selected ? null : a.id)}
+              style={{
+                background: a.id === selected ? theme.fog : theme.vellum,
+                border: `1px solid ${theme.hairline}`,
+                borderRadius: 6, padding: '3px 8px', fontSize: 10,
+                color: theme.ink1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: 3, background: a.alive ? theme.moss : theme.ink2, display: 'inline-block' }} />
+              {a.id}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: theme.ink2, marginTop: 6 }}>
+          activity
+        </div>
+        {events.map((e, i) => (
+          <div
+            key={`${e.ts}-${i}`}
+            onClick={() => e.agentId && setSelected(e.agentId)}
+            style={{
+              display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12,
+              padding: '5px 8px', borderRadius: 6,
+              background: e.kind === 'rejected' || e.kind === 'blocked' || e.kind === 'attention' ? theme.vellum : 'transparent',
+              color: theme.ink0, cursor: e.agentId ? 'pointer' : 'default',
+            }}
+          >
+            <span style={{ color: e.kind === 'approved' ? theme.moss : e.kind === 'rejected' || e.kind === 'attention' ? theme.oxblood : theme.ink2 }}>
+              {KIND_GLYPH[e.kind] ?? '·'}
+            </span>
+            <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{e.text}</span>
+            <span style={{ fontSize: 10, color: theme.ink2, whiteSpace: 'nowrap' }}>{relTime(e.ts)}</span>
+          </div>
+        ))}
+        {events.length === 0 && <div style={{ fontSize: 12, color: theme.ink2 }}>nothing yet — quiet as the grave.</div>}
+      </div>
+      {selected && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 11, color: theme.ink1 }}>{selected}</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setSelected(null)} style={{ background: theme.fog, color: theme.ink1, border: 'none', borderRadius: 6, fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>
+              close
+            </button>
+          </div>
+          <pre
+            ref={preRef}
+            onScroll={(ev) => {
+              const el = ev.currentTarget;
+              atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            }}
+            style={{
+              flex: 1, minHeight: 0, overflow: 'auto', margin: 0, padding: 10,
+              background: theme.paper, border: `1px solid ${theme.hairline}`, borderRadius: 8,
+              fontSize: 11, lineHeight: 1.45, color: theme.ink1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+            }}
+          >
+            {logText || '(log is empty)'}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatText({ text }) {
+  // tiny markdown-lite: paragraphs, `code`, - lists
+  const blocks = text.split(/\n{2,}/);
+  return blocks.map((b, i) => {
+    const lines = b.split('\n');
+    const isList = lines.every((l) => l.trim().startsWith('- ') || !l.trim());
+    const renderInline = (s) =>
+      s.split(/(`[^`]+`)/).map((part, j) =>
+        part.startsWith('`') && part.endsWith('`') ? (
+          <code key={j} style={{ background: 'rgba(128,128,128,0.18)', borderRadius: 3, padding: '0 4px', fontSize: '0.92em' }}>
+            {part.slice(1, -1)}
+          </code>
+        ) : (
+          part
+        ),
+      );
+    if (isList) {
+      return (
+        <ul key={i} style={{ margin: '4px 0', paddingLeft: 18 }}>
+          {lines.filter((l) => l.trim()).map((l, j) => <li key={j}>{renderInline(l.trim().slice(2))}</li>)}
+        </ul>
+      );
+    }
+    return <p key={i} style={{ margin: '4px 0' }}>{renderInline(b)}</p>;
+  });
+}
+
+const STARTERS = ["what's happening right now?", 'why was the last story rejected?', 'what needs me?'];
+
+function Chat({ api, ws, theme, input, btn }) {
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [pending, setPending] = useState(false);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    api.ipc.invoke('chat:history', ws).then(setMessages).catch(() => setMessages([]));
+  }, [api, ws]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages, pending]);
+
+  const sendMessage = async (text) => {
+    if (!text.trim() || pending) return;
+    setDraft('');
+    setPending(true);
+    setMessages((m) => [...m, { role: 'user', text, ts: new Date().toISOString() }]);
+    try {
+      await api.ipc.invoke('chat:send', ws, text);
+    } catch {
+      // error message is recorded in history by the main side
+    } finally {
+      setPending(false);
+      api.ipc.invoke('chat:history', ws).then(setMessages).catch(() => {});
+    }
+  };
+
+  const bubbleStyle = (role) => ({
+    alignSelf: role === 'user' ? 'flex-end' : 'flex-start',
+    maxWidth: '78%',
+    background: role === 'user' ? theme.fog : theme.vellum,
+    border: `1px solid ${role === 'error' ? theme.oxblood : theme.hairline}`,
+    color: role === 'error' ? theme.oxblood : theme.ink0,
+    borderRadius: 10, padding: '8px 12px', fontSize: 12.5, lineHeight: 1.5,
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: 10 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 2px' }}>
+        {messages.length === 0 && !pending && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', marginTop: 40 }}>
+            <div style={{ fontSize: 13, color: theme.ink2 }}>ask the séance anything about this workspace</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+              {STARTERS.map((s) => (
+                <button key={s} onClick={() => void sendMessage(s)} style={{ background: theme.vellum, border: `1px solid ${theme.hairline}`, color: theme.ink1, borderRadius: 14, fontSize: 11.5, padding: '5px 12px', cursor: 'pointer' }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={bubbleStyle(m.role)}>
+            <ChatText text={m.text} />
+          </div>
+        ))}
+        {pending && (
+          <div style={{ ...bubbleStyle('assistant'), color: theme.ink2, fontStyle: 'italic' }}>
+            consulting the spirits…
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <textarea
+          style={{ ...input, flex: 1, minHeight: 38, maxHeight: 120, resize: 'none', fontFamily: 'inherit' }}
+          placeholder="ask the séance… (Enter to send)"
+          value={draft}
+          disabled={pending}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void sendMessage(draft);
+            }
+          }}
+        />
+        <button style={btn(theme.neon, '#0E0F12')} disabled={pending || !draft.trim()} onClick={() => void sendMessage(draft)}>
+          send
+        </button>
+        <button
+          style={btn(theme.fog, theme.ink1)}
+          disabled={pending}
+          onClick={() => {
+            void api.ipc.invoke('chat:reset', ws).then(() => setMessages([]));
+          }}
+          title="forget this conversation"
+        >
+          new séance
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function App({ api }) {
   const theme = useTheme(api);
   const [workspaces, setWorkspaces] = useState([]);
@@ -67,6 +342,7 @@ function App({ api }) {
   const [form, setForm] = useState({ id: '', title: '', priority: 'normal', body: '' });
   const [steerText, setSteerText] = useState('');
   const [notice, setNotice] = useState(null);
+  const [tab, setTab] = useState('board');
 
   const refresh = useCallback(async (path) => {
     if (!path) return;
@@ -141,7 +417,7 @@ function App({ api }) {
   });
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, color: theme.ink0, fontFamily: 'inherit' }}>
+    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, color: theme.ink0, fontFamily: 'inherit', height: '100%', boxSizing: 'border-box' }}>
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>séance</span>
@@ -161,9 +437,33 @@ function App({ api }) {
         </button>
       </div>
 
-      {error && <Card theme={theme} tone="alert">{error}</Card>}
-      {notice && <Card theme={theme} tone="alert">{notice}</Card>}
+      {/* tabs */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${theme.hairline}` }}>
+        {[['board', 'board'], ['hood', 'under the hood'], ['chat', 'chat']].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              padding: '6px 14px', fontSize: 12, fontWeight: tab === key ? 600 : 400,
+              color: tab === key ? theme.ink0 : theme.ink2,
+              borderBottom: `2px solid ${tab === key ? theme.neon : 'transparent'}`,
+              marginBottom: -1,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
+      {error && <Card theme={theme} tone="alert">{error}</Card>}
+      {notice && tab === 'board' && <Card theme={theme} tone="alert">{notice}</Card>}
+
+      {tab === 'hood' && ws && <UnderTheHood api={api} ws={ws} theme={theme} input={input} />}
+      {tab === 'chat' && ws && <Chat api={api} ws={ws} theme={theme} input={input} btn={btn} />}
+
+      {tab !== 'board' ? null : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', minHeight: 0 }}>
       {/* attention strip */}
       {snap?.attention?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -244,6 +544,8 @@ function App({ api }) {
             }} />
         </div>
       </div>
+        </div>
+      )}
     </div>
   );
 }
