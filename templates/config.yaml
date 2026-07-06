@@ -1,0 +1,38 @@
+# Séance workspace config — copy to ~/seance/<workspace>/config.yaml and edit.
+workspace: my-workspace
+
+# Repos this workspace orchestrates ("teams"). Clones live at repos/<name>/.
+repos:
+  example-repo:
+    url: git@github.com:you/example-repo.git
+    default_branch: main
+    # integration: how approved stories land.
+    #   merge — critic merges --no-ff into default_branch (good for local/unprotected repos)
+    #   pr    — critic opens a PR via `gh pr create` (protected repos)
+    integration: pr
+    # Full test suite command, run from repo root. Critic runs this on every verdict;
+    # planner bases story oracles on it.
+    test_command: npm test
+
+# Concurrency limits (enforced by the manager tick).
+max_builders: 3
+max_critics: 2
+max_planner: 1
+
+# Agents running longer than this are killed and their story requeued.
+max_agent_minutes: 45
+
+# After this many rejected attempts a story goes to `blocked` + attention/.
+attempt_cap: 3
+
+# Model per role (claude CLI aliases). Judgment roles get the strong model.
+models:
+  manager: haiku
+  planner: opus
+  builder: sonnet
+  critic: opus
+
+# Seconds the heartbeat sleeps between ticks (manager writes next-sleep from these).
+sleep:
+  active: 60
+  idle: 600
