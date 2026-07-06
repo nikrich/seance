@@ -139,7 +139,7 @@ function UnderTheHood({ api, ws, theme, input }) {
           agents
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {agents.slice(0, 12).map((a) => (
+          {[...agents].sort((a, b) => (a.source === 'system' ? -1 : b.source === 'system' ? 1 : 0)).slice(0, 14).map((a) => (
             <button
               key={a.id}
               onClick={() => setSelected(a.id === selected ? null : a.id)}
@@ -236,11 +236,13 @@ function ChatText({ text }) {
 
 const STARTERS = ["what's happening right now?", 'why was the last story rejected?', 'what needs me?'];
 
-function Chat({ api, ws, theme, input, btn }) {
+function Chat({ api, ws, theme }) {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
+  const [focused, setFocused] = useState(false);
   const endRef = useRef(null);
+  const taRef = useRef(null);
 
   useEffect(() => {
     api.ipc.invoke('chat:history', ws).then(setMessages).catch(() => setMessages([]));
@@ -250,9 +252,19 @@ function Chat({ api, ws, theme, input, btn }) {
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [messages, pending]);
 
+  // grow the textarea up to ~5 rows, then scroll internally (matches the host chat)
+  const autosize = () => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+    el.style.overflowY = el.scrollHeight > 132 ? 'auto' : 'hidden';
+  };
+
   const sendMessage = async (text) => {
     if (!text.trim() || pending) return;
     setDraft('');
+    requestAnimationFrame(autosize);
     setPending(true);
     setMessages((m) => [...m, { role: 'user', text, ts: new Date().toISOString() }]);
     try {
@@ -267,18 +279,33 @@ function Chat({ api, ws, theme, input, btn }) {
 
   const bubbleStyle = (role) => ({
     alignSelf: role === 'user' ? 'flex-end' : 'flex-start',
-    maxWidth: '78%',
-    background: role === 'user' ? theme.fog : theme.vellum,
-    border: `1px solid ${role === 'error' ? theme.oxblood : theme.hairline}`,
+    maxWidth: '80%',
+    whiteSpace: 'pre-wrap',
+    background: role === 'user' ? theme.vellum : 'transparent',
+    border: role === 'user' ? `1px solid ${theme.hairline}` : role === 'error' ? `1px solid ${theme.oxblood}` : 'none',
     color: role === 'error' ? theme.oxblood : theme.ink0,
-    borderRadius: 10, padding: '8px 12px', fontSize: 12.5, lineHeight: 1.5,
+    borderRadius: 10,
+    padding: role === 'user' ? '10px 14px' : '2px 2px',
+    fontSize: 13.5,
+    lineHeight: 1.5,
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, gap: 10 }}>
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 2px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: 6 }}>
+        <button
+          onClick={() => void api.ipc.invoke('chat:reset', ws).then(() => setMessages([]))}
+          disabled={pending}
+          title="forget this conversation"
+          style={{ background: 'transparent', border: 'none', color: theme.ink2, fontSize: 11, cursor: pending ? 'default' : 'pointer', padding: '2px 4px' }}
+        >
+          + new séance
+        </button>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, padding: '4px 2px' }}>
         {messages.length === 0 && !pending && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', marginTop: 40 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', marginTop: 48 }}>
             <div style={{ fontSize: 13, color: theme.ink2 }}>ask the séance anything about this workspace</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
               {STARTERS.map((s) => (
@@ -301,32 +328,48 @@ function Chat({ api, ws, theme, input, btn }) {
         )}
         <div ref={endRef} />
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
+
+      {/* single bordered container, borderless textarea + embedded send — mirrors the host chat */}
+      <div
+        style={{
+          display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 10,
+          background: theme.vellum, border: `1px solid ${focused ? theme.ink2 : theme.hairline}`,
+          borderRadius: 10, padding: '6px 6px 6px 14px', transition: 'border-color 120ms',
+        }}
+      >
         <textarea
-          style={{ ...input, flex: 1, minHeight: 38, maxHeight: 120, resize: 'none', fontFamily: 'inherit' }}
-          placeholder="ask the séance… (Enter to send)"
+          ref={taRef}
+          rows={1}
           value={draft}
           disabled={pending}
-          onChange={(e) => setDraft(e.target.value)}
+          placeholder={pending ? 'the séance is responding…' : 'message the séance…'}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onChange={(e) => { setDraft(e.target.value); autosize(); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               void sendMessage(draft);
             }
           }}
-        />
-        <button style={btn(theme.neon, '#0E0F12')} disabled={pending || !draft.trim()} onClick={() => void sendMessage(draft)}>
-          send
-        </button>
-        <button
-          style={btn(theme.fog, theme.ink1)}
-          disabled={pending}
-          onClick={() => {
-            void api.ipc.invoke('chat:reset', ws).then(() => setMessages([]));
+          style={{
+            flex: 1, resize: 'none', overflowY: 'hidden', border: 'none', outline: 'none',
+            background: 'transparent', color: theme.ink0, fontFamily: 'inherit',
+            fontSize: 13.5, lineHeight: 1.5, padding: '7px 0',
           }}
-          title="forget this conversation"
+        />
+        <button
+          aria-label="send"
+          disabled={pending || !draft.trim()}
+          onClick={() => void sendMessage(draft)}
+          style={{
+            width: 32, height: 32, flexShrink: 0, marginBottom: 1, borderRadius: 6, border: 'none',
+            background: theme.neon, color: '#0E0F12', fontSize: 15, lineHeight: 1, fontWeight: 700,
+            cursor: pending || !draft.trim() ? 'not-allowed' : 'pointer',
+            opacity: pending || !draft.trim() ? 0.4 : 1,
+          }}
         >
-          new séance
+          ↑
         </button>
       </div>
     </div>
@@ -460,7 +503,7 @@ function App({ api }) {
       {notice && tab === 'board' && <Card theme={theme} tone="alert">{notice}</Card>}
 
       {tab === 'hood' && ws && <UnderTheHood api={api} ws={ws} theme={theme} input={input} />}
-      {tab === 'chat' && ws && <Chat api={api} ws={ws} theme={theme} input={input} btn={btn} />}
+      {tab === 'chat' && ws && <Chat api={api} ws={ws} theme={theme} />}
 
       {tab !== 'board' ? null : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', minHeight: 0 }}>
