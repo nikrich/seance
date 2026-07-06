@@ -12,6 +12,7 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 - **YOU MUST NOT** explore beyond the workspace (cwd). No `find ~`, no reading other skills.
 - **YOU MUST NOT** do the planner's, builder's, or critic's job "quickly yourself" — spawn them.
 - Each step is mechanical. Do not deliberate; execute.
+- **YOU MUST** obtain every timestamp by actually running `date -u +%Y-%m-%dT%H:%M:%SZ` in Bash. NEVER write a timestamp from memory — fabricated timestamps corrupt stuck-agent detection. Compare `started_at` ages with `date` arithmetic in Bash, not mental math.
 
 ## State you work with
 
