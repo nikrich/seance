@@ -1,0 +1,33 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="orb" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#6d5ae0"/>
+      <stop offset="55%" stop-color="#3b2f7a"/>
+      <stop offset="100%" stop-color="#1b1638"/>
+    </radialGradient>
+    <linearGradient id="ghost" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4f1ff"/>
+      <stop offset="100%" stop-color="#c9befa"/>
+    </linearGradient>
+  </defs>
+
+  <!-- crystal ball -->
+  <circle cx="80" cy="74" r="52" fill="url(#orb)"/>
+  <circle cx="80" cy="74" r="52" stroke="#8f7ff0" stroke-opacity="0.55" stroke-width="2.5"/>
+  <!-- glint -->
+  <ellipse cx="61" cy="52" rx="12" ry="7" fill="#ffffff" opacity="0.22" transform="rotate(-28 61 52)"/>
+
+  <!-- ghost in the orb -->
+  <path fill="url(#ghost)" opacity="0.95" d="M80 44c-14 0-23 10-23 24v22c0 2.6 3.4 3.8 5.2 1.9l3.1-3.2 4.4 4.6c1.2 1.2 3.2 1.2 4.4 0l4.4-4.6 4.4 4.6c1.2 1.2 3.2 1.2 4.4 0l4.4-4.6 3.1 3.2c1.8 1.9 5.2.7 5.2-1.9V68c0-14-9-24-20-24z"/>
+  <circle cx="72" cy="70" r="3.6" fill="#241d4d"/>
+  <circle cx="90" cy="70" r="3.6" fill="#241d4d"/>
+
+  <!-- base -->
+  <path d="M50 122c0-6 13.4-11 30-11s30 5 30 11-13.4 11-30 11-30-5-30-11z" fill="#2a2352"/>
+  <path d="M56 116h48l6 8H50l6-8z" fill="#3b2f7a"/>
+
+  <!-- sparkles -->
+  <path d="M32 30l2.2 5.6L40 38l-5.8 2.4L32 46l-2.2-5.6L24 38l5.8-2.4L32 30z" fill="#8f7ff0"/>
+  <path d="M128 44l1.6 4 4.4 1.8-4.4 1.8-1.6 4-1.6-4-4.4-1.8 4.4-1.8 1.6-4z" fill="#8f7ff0" opacity="0.8"/>
+  <circle cx="118" cy="22" r="2.4" fill="#8f7ff0" opacity="0.6"/>
+</svg>
