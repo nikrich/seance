@@ -143,9 +143,13 @@ pending → building → verifying ──approved──→ merged | pr_open
 
 Séance is built to be summoned from [**Poltergeist**](https://github.com/nikrich/poltergeist),
 the local-first second brain: capture an idea as a note, then kick off a coding session on
-it without leaving the app. The integration surface is the file contract below — Poltergeist's
-*Summon* writes a requirement into `inbox/` and ensures the heartbeat is running; its status
-panel just watches the state files.
+it without leaving the app. The plugin ships in this repo at [`poltergeist-plugin/`](poltergeist-plugin/).
+
+Install it from Poltergeist: **Plugins → install from git** with URL
+`https://github.com/nikrich/seance` and subdirectory `poltergeist-plugin`. You get a
+*séance* sidebar entry with a live story board, an attention strip, a summon form
+(writes a requirement into `inbox/`), a steering input, and heartbeat start/stop.
+The plugin consumes only the file contract below — it writes to `inbox/` and nothing else.
 
 ### The file contract (any external tool)
 
