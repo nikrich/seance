@@ -4,19 +4,25 @@
 // inbox/ (+ this plugin's own dataDir); reads everything else. Heartbeat
 // start/stop is process management, not files.
 
-const { spawn } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const {
+  closeSync,
   existsSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
+  readSync,
+  statSync,
   watch,
   writeFileSync,
 } = require('node:fs');
 const { homedir } = require('node:os');
 const { join, resolve } = require('node:path');
 const { readWorkspaceStatus, pidAlive } = require('./lib/state-files.cjs');
+const { parseFrontmatter } = require('./lib/state-files.cjs');
+const { buildActivity } = require('./lib/activity.cjs');
+const { createChat } = require('./lib/chat.cjs');
 
 const SEANCE_ROOT = join(homedir(), 'seance');
 const DEFAULT_SEANCE_REPO = join(homedir(), 'development', 'nikrich', 'seance');
@@ -182,6 +188,103 @@ function activate(ctx) {
         for (const h of handles) h.close();
       },
     });
+    return { ok: true };
+  });
+
+  ctx.ipc.handle('activity', (wsPath, limit) => {
+    const ws = assertWorkspace(wsPath);
+    return buildActivity(ws, Number.isInteger(limit) && limit > 0 ? limit : 100);
+  });
+
+  ctx.ipc.handle('agents:list', (wsPath) => {
+    const ws = assertWorkspace(wsPath);
+    const readAgents = (dir, source) => {
+      if (!existsSync(dir)) return [];
+      return readdirSync(dir)
+        .filter((f) => f.endsWith('.md'))
+        .map((f) => {
+          const { attrs } = parseFrontmatter(readFileSync(join(dir, f), 'utf-8'));
+          const pid = Number(attrs.pid ?? 0);
+          return {
+            id: String(attrs.id ?? f.replace(/\.md$/, '')),
+            role: String(attrs.role ?? ''),
+            story: attrs.story == null ? null : String(attrs.story),
+            startedAt: String(attrs.started_at ?? ''),
+            alive: source === 'live' ? pidAlive(pid) : false,
+            source,
+          };
+        });
+    };
+    const agents = [
+      ...readAgents(join(ws, 'state', 'agents'), 'live'),
+      ...readAgents(join(ws, 'journal', 'agents'), 'reaped'),
+    ].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+    for (const [id, file] of [['manager', 'manager.log'], ['heartbeat', 'heartbeat-plugin.log']]) {
+      if (existsSync(join(ws, 'logs', file))) {
+        agents.push({ id, role: id, story: null, startedAt: '', alive: false, source: 'system' });
+      }
+    }
+    return agents;
+  });
+
+  ctx.ipc.handle('log:read', (wsPath, agentId, fromByte) => {
+    const ws = assertWorkspace(wsPath);
+    if (typeof agentId !== 'string' || !/^[\w.-]+$/.test(agentId)) {
+      throw new Error('invalid agent id');
+    }
+    const file =
+      agentId === 'manager'
+        ? join(ws, 'logs', 'manager.log')
+        : agentId === 'heartbeat'
+          ? join(ws, 'logs', 'heartbeat-plugin.log')
+          : join(ws, 'logs', `${agentId}.log`);
+    if (!existsSync(file)) return { chunk: '', nextByte: 0, size: 0 };
+    const size = statSync(file).size;
+    const CAP = 256 * 1024;
+    let start = Number.isInteger(fromByte) && fromByte > 0 ? fromByte : 0;
+    if (start === 0 && size > CAP) start = size - CAP; // first read of a huge log: tail it
+    if (start >= size) return { chunk: '', nextByte: size, size };
+    const len = Math.min(size - start, CAP);
+    const buf = Buffer.alloc(len);
+    const fd = openSync(file, 'r');
+    try {
+      readSync(fd, buf, 0, len, start);
+    } finally {
+      closeSync(fd);
+    }
+    return { chunk: buf.toString('utf-8'), nextByte: start + len, size };
+  });
+
+  const chatApi = createChat({
+    dataDir: ctx.dataDir,
+    runClaude: (args, cwd, timeoutMs) =>
+      new Promise((resolveRun) => {
+        execFile(
+          'claude',
+          args,
+          { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
+          (err, stdout, stderr) => {
+            resolveRun({
+              code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
+              stdout: stdout ?? '',
+              stderr: (stderr ?? '') + (err && !stderr ? ` ${err.message}` : ''),
+            });
+          },
+        );
+      }),
+  });
+
+  ctx.ipc.handle('chat:send', async (wsPath, text) => {
+    const ws = assertWorkspace(wsPath);
+    if (typeof text !== 'string' || !text.trim()) throw new Error('message required');
+    const model = ctx.settings.get('chatModel') ?? 'sonnet';
+    return chatApi.send(ws, text.trim(), model);
+  });
+
+  ctx.ipc.handle('chat:history', (wsPath) => chatApi.history(assertWorkspace(wsPath)));
+
+  ctx.ipc.handle('chat:reset', (wsPath) => {
+    chatApi.reset(assertWorkspace(wsPath));
     return { ok: true };
   });
 
