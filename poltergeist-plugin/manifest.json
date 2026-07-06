@@ -1,0 +1,9 @@
+{
+  "id": "seance",
+  "name": "Séance",
+  "version": "0.1.0",
+  "description": "Summon autonomous coding sessions and watch them live",
+  "apiVersion": 1,
+  "icon": "sparkles",
+  "entry": { "main": "dist/main.cjs", "renderer": "dist/renderer.mjs" }
+}
