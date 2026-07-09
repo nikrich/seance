@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, readlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos } = require('../src/lib/workspace.cjs');
+const { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos, ensureMcpConfig, ensureAgentSettings } = require('../src/lib/workspace.cjs');
 
 const TEMPLATE = `
 workspace: my-workspace
@@ -101,6 +101,16 @@ test('validateConfigModel: rejects broken models', () => {
   assert.ok(validateConfigModel(emptyBranch).some((e) => e === 'repo example-repo: default_branch is invalid'));
 });
 
+test('parseConfig / configToYaml / validateConfigModel: feature-pr is a valid integration mode', () => {
+  const withFeaturePr = TEMPLATE.replace('integration: pr', 'integration: feature-pr');
+  const m = parseConfig(withFeaturePr);
+  assert.equal(m.repos[0].integration, 'feature-pr');
+  assert.deepEqual(validateConfigModel(m), []);
+  // round-trips through YAML unchanged
+  const back = parseConfig(configToYaml(m));
+  assert.equal(back.repos[0].integration, 'feature-pr');
+});
+
 test('configToYaml: ignores extra entries that collide with known keys', () => {
   const m = parseConfig(TEMPLATE);
   m.extra = { repos: 'evil', custom_key: 'kept' };
@@ -136,7 +146,7 @@ test('scaffoldWorkspace: creates the contract tree, config, skills symlink, clon
   const { calls, runGit } = fakeGit();
   const { wsPath, clones } = await scaffoldWorkspace({ root, name: 'proj', config: MODEL(), seanceRepo, runGit });
   assert.equal(wsPath, join(root, 'proj'));
-  for (const d of ['inbox/processed', 'state/requirements', 'state/stories', 'state/agents', 'attention', 'journal', 'repos', 'worktrees', 'logs', '.claude']) {
+  for (const d of ['inbox/processed', 'state/requirements', 'state/stories', 'state/agents', 'attention', 'journal', 'repos', 'worktrees', 'logs', '.claude', 'questions']) {
     assert.ok(existsSync(join(wsPath, d)), `missing ${d}`);
   }
   const cfg = parseConfig(readFileSync(join(wsPath, 'config.yaml'), 'utf-8'));
@@ -174,4 +184,40 @@ test('syncRepos: clones only repos missing from repos/', async () => {
   const clones = await syncRepos(wsPath, model, again.runGit);
   assert.deepEqual(again.calls, [['-c', 'protocol.ext.allow=never', 'clone', '--branch', 'dev', '--', 'git@github.com:you/second.git', join(wsPath, 'repos', 'second')]]);
   assert.deepEqual(clones, [{ name: 'second', ok: true, error: undefined }]);
+});
+
+test('scaffoldWorkspace: writes .mcp.json registering the poltergeist MCP server', async () => {
+  const { root, seanceRepo } = tmpSetup();
+  const { runGit } = fakeGit();
+  const { wsPath } = await scaffoldWorkspace({ root, name: 'proj', config: MODEL(), seanceRepo, runGit });
+  const mcp = JSON.parse(readFileSync(join(wsPath, '.mcp.json'), 'utf-8'));
+  assert.equal(mcp.mcpServers.poltergeist.command, 'ghostbrain-mcp');
+});
+
+test('ensureMcpConfig: never overwrites an existing .mcp.json', async () => {
+  const { root, seanceRepo } = tmpSetup();
+  const { runGit } = fakeGit();
+  const { wsPath } = await scaffoldWorkspace({ root, name: 'proj', config: MODEL(), seanceRepo, runGit });
+  writeFileSync(join(wsPath, '.mcp.json'), '{"custom":true}');
+  assert.equal(ensureMcpConfig(wsPath), false);
+  assert.equal(readFileSync(join(wsPath, '.mcp.json'), 'utf-8'), '{"custom":true}');
+});
+
+test('scaffoldWorkspace: writes .claude/settings.local.json trusting project MCP servers', async () => {
+  const { root, seanceRepo } = tmpSetup();
+  const { runGit } = fakeGit();
+  const { wsPath } = await scaffoldWorkspace({ root, name: 'proj', config: MODEL(), seanceRepo, runGit });
+  const settings = readFileSync(join(wsPath, '.claude', 'settings.local.json'), 'utf-8');
+  assert.equal(settings, '{"enableAllProjectMcpServers": true}\n');
+});
+
+test('ensureAgentSettings: writes once, never overwrites an existing settings.local.json', async () => {
+  const { root, seanceRepo } = tmpSetup();
+  const { runGit } = fakeGit();
+  const { wsPath } = await scaffoldWorkspace({ root, name: 'proj', config: MODEL(), seanceRepo, runGit });
+  // scaffold already wrote it — a second call is a no-op
+  assert.equal(ensureAgentSettings(wsPath), false);
+  writeFileSync(join(wsPath, '.claude', 'settings.local.json'), '{"custom":true}');
+  assert.equal(ensureAgentSettings(wsPath), false);
+  assert.equal(readFileSync(join(wsPath, '.claude', 'settings.local.json'), 'utf-8'), '{"custom":true}');
 });

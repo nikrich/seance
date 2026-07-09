@@ -21,12 +21,12 @@ const {
 } = require('node:fs');
 const { homedir } = require('node:os');
 const { join, resolve } = require('node:path');
-const { readWorkspaceStatus, pidAlive, dismissAttention } = require('./lib/state-files.cjs');
+const { readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec, ackFeaturePr } = require('./lib/state-files.cjs');
 const { parseFrontmatter } = require('./lib/state-files.cjs');
 const { buildActivity } = require('./lib/activity.cjs');
 const { createChat } = require('./lib/chat.cjs');
 const { withClaudePath } = require('./lib/spawn-env.cjs');
-const { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos } = require('./lib/workspace.cjs');
+const { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos, ensureMcpConfig, ensureAgentSettings } = require('./lib/workspace.cjs');
 
 const SEANCE_ROOT = join(homedir(), 'seance');
 const DEFAULT_SEANCE_REPO = join(homedir(), 'development', 'nikrich', 'seance');
@@ -124,6 +124,36 @@ function activate(ctx) {
   ctx.ipc.handle('attention:dismiss', (wsPath, name) => {
     const ws = assertWorkspace(wsPath);
     dismissAttention(ws, name);
+    return { ok: true };
+  });
+
+  ctx.ipc.handle('question:answer', (wsPath, file, text) => {
+    const ws = assertWorkspace(wsPath);
+    if (typeof text !== 'string' || !text.trim()) throw new Error('answer required');
+    answerQuestion(ws, file, text);
+    wakeHeartbeat(ctx, ws);
+    return { ok: true };
+  });
+
+  ctx.ipc.handle('spec:approve', (wsPath, reqId, specText) => {
+    const ws = assertWorkspace(wsPath);
+    if (typeof specText !== 'string' || !specText.trim()) throw new Error('spec text required');
+    writeSpec(ws, reqId, specText, { mode: 'approve' });
+    wakeHeartbeat(ctx, ws);
+    return { ok: true };
+  });
+
+  ctx.ipc.handle('spec:revise', (wsPath, reqId, specText, feedback) => {
+    const ws = assertWorkspace(wsPath);
+    if (typeof feedback !== 'string' || !feedback.trim()) throw new Error('feedback required');
+    writeSpec(ws, reqId, String(specText ?? ''), { mode: 'revise', feedback });
+    wakeHeartbeat(ctx, ws);
+    return { ok: true };
+  });
+
+  ctx.ipc.handle('feature-pr:ack', (wsPath, reqId) => {
+    const ws = assertWorkspace(wsPath);
+    ackFeaturePr(ws, reqId);
     return { ok: true };
   });
 
@@ -358,6 +388,8 @@ function activate(ctx) {
     const errors = validateConfigModel(model);
     if (errors.length > 0) throw new Error(errors.join('; '));
     writeFileSync(join(ws, 'config.yaml'), configToYaml(model));
+    ensureMcpConfig(ws);
+    ensureAgentSettings(ws);
     return { clones: await syncRepos(ws, model, runGit) };
   });
 

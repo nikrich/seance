@@ -8,15 +8,51 @@ description: Use ONLY when invoked as the Séance builder for a specific story (
 ## YOU MUST / YOU MUST NOT
 
 - **YOU MUST read the story's `## Attempts ledger` FIRST** and never retry an approach a previous attempt ruled out. The ledger is your memory across attempts; ignoring it is the one unforgivable failure.
-- **YOU MUST** work ONLY inside `worktrees/<story-id>/`. Never edit files in `repos/<name>/` directly, never touch other worktrees, never touch workspace state except the story file's frontmatter + ledger as specified below.
+- **YOU MUST** work ONLY inside `worktrees/<story-id>/`. Never edit files in `repos/<name>/` directly, never touch other worktrees, never touch workspace state except the story file's frontmatter + ledger as specified below, and (per the knowledge chain) `questions/*.md`.
 - **YOU MUST** do TDD: write the failing test, see it fail, implement, see it pass.
 - **YOU MUST** run the story's `oracle` AND the repo's full `test_command` inside your worktree and see both pass before handing off. Never hand off red.
 - **YOU MUST NOT** merge, force-push, use `--no-verify`, amend published commits, weaken or delete existing tests, or widen the story's scope. If the oracle cannot pass for a reason outside this story's scope (broken main, missing dep story), record it in the ledger, set status back to `pending`, and exit — do not fix the world.
 - **YOU MUST** exit after handoff. No waiting, no polling, no starting other stories.
 
+## The knowledge chain (when you lack context)
+
+When a gap in product intent, naming, prior art, or past decisions blocks
+correct work — not mere curiosity — resolve it in this order:
+
+1. **Vault:** `poltergeist_search` (cheap, no LLM) to locate notes; escalate
+   to `poltergeist_ask` (synthesized answer with citations) only when search
+   hits need interpreting.
+2. **Shared memory:** `mempalace_search`.
+3. **The human — last resort, only if the gap blocks correctness:** write
+   `questions/<your-story-or-req-id>-<slug>.md`:
+
+   ```markdown
+   ---
+   id: <story-or-req-id>-<slug>
+   story: <story-id>            # omit for requirement-level questions
+   requirement: <req-id>
+   status: open
+   asked_at: <ISO8601 UTC>
+   ---
+   ## Question
+
+   <the question; why it blocks you; the options you considered, with
+   trade-offs — give the human something to decide, not research>
+   ```
+
+   Then: builders/critics set their story back to `pending` with a ledger
+   note `waiting-on-question: <file>` and exit. Planners note the open
+   question in the spec's "Open questions" and continue speccing what is
+   answerable.
+
+A failed MCP call (server not registered, sidecar not running) is a "no
+answer" — note it in your ledger and move down the chain. Never hang on it,
+and never invent an answer to an escalation-worthy question.
+
 ## Inputs
 
 - The story: `state/stories/<story-id>.md` — your entire brief. `repo`, `branch`, `oracle`, `## Task`, `## Attempts ledger`.
+- The story's requirement: `state/requirements/<requirement>.md` — check for `feature_branch` (feature-pr mode; see step 1).
 - Dependency stories: `state/stories/<dep-id>.md` for every id in your story's `deps` — you need each one's `status` and `branch` (see step 1b).
 - `config.yaml`: `repos.<repo>.{default_branch,test_command}`.
 - Timestamps: always from `date -u +%Y-%m-%dT%H:%M:%SZ`, never from memory.
@@ -24,6 +60,13 @@ description: Use ONLY when invoked as the Séance builder for a specific story (
 ## Procedure
 
 ### 1. Set up the worktree (idempotent — retries reuse it)
+
+If your story's requirement has `feature_branch` in its frontmatter
+(feature-pr mode), use that branch as the base instead of
+`<default_branch>` — everywhere `<default_branch>` appears in this step and
+in retry rebases. Same-requirement deps that are `merged` are already in the
+feature branch; step 1b (merging pr_open dep branches) then applies only to
+cross-requirement deps.
 
 ```bash
 if [ ! -d "worktrees/<story-id>" ]; then

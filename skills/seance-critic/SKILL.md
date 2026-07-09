@@ -16,12 +16,55 @@ Your job is to REJECT this story. Only if you honestly cannot find grounds does 
 - **YOU MUST** exit after writing your verdict. One story per invocation.
 - Timestamps: always from `date -u +%Y-%m-%dT%H:%M:%SZ`, never from memory.
 
+## The knowledge chain (when you lack context)
+
+When a gap in product intent, naming, prior art, or past decisions blocks
+correct work — not mere curiosity — resolve it in this order:
+
+1. **Vault:** `poltergeist_search` (cheap, no LLM) to locate notes; escalate
+   to `poltergeist_ask` (synthesized answer with citations) only when search
+   hits need interpreting.
+2. **Shared memory:** `mempalace_search`.
+3. **The human — last resort, only if the gap blocks correctness:** write
+   `questions/<your-story-or-req-id>-<slug>.md`:
+
+   ```markdown
+   ---
+   id: <story-or-req-id>-<slug>
+   story: <story-id>            # omit for requirement-level questions
+   requirement: <req-id>
+   status: open
+   asked_at: <ISO8601 UTC>
+   ---
+   ## Question
+
+   <the question; why it blocks you; the options you considered, with
+   trade-offs — give the human something to decide, not research>
+   ```
+
+   Then: builders/critics set their story back to `pending` with a ledger
+   note `waiting-on-question: <file>` and exit. Planners note the open
+   question in the spec's "Open questions" and continue speccing what is
+   answerable.
+
+A failed MCP call (server not registered, sidecar not running) is a "no
+answer" — note it in your ledger and move down the chain. Never hang on it,
+and never invent an answer to an escalation-worthy question.
+
 ## Inputs
 
 - The story: `state/stories/<story-id>.md` (`repo`, `branch`, `oracle`, `## Task` acceptance criteria, ledger — including what the builder flagged for you).
+- The story's requirement: `state/requirements/<requirement>.md` — `feature-pr` mode reads/writes `feature_branch` and `feature_pr` here, and needs every sibling story's `status` from `state/stories/`.
 - `config.yaml`: `repos.<repo>.{default_branch,integration,test_command}`.
 
 ## Procedure
+
+If the story's requirement has `feature_branch` in its frontmatter
+(feature-pr mode), use that branch wherever `<default_branch>` appears in
+this skill as a diff or merge base (the feature-pr PR command's `--base
+<default_branch>` stays as-is) — the diff under review is story-branch vs `feature_branch`, so
+previously merged sibling stories are NOT part of this story's diff and must
+not be judged as scope creep.
 
 ### 1. Clean checkout
 
@@ -64,6 +107,25 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   ```
   Run `test_command` once more on `default_branch` post-merge. If it fails, revert the merge (`git reset --hard ORIG_HEAD`) and treat as REJECT with the failure output.
 - `pr`: `git push -u origin <branch>` then `gh pr create --fill --head <branch>`; record the PR URL in the ledger.
+- `feature-pr`: if the requirement's frontmatter has no `feature_branch`,
+  fall back to the `pr` bullet above instead. Otherwise: merge `--no-ff`
+  into the requirement's `feature_branch`. Run `test_command` once more on
+  `feature_branch` post-merge. If it fails, revert the merge
+  (`git reset --hard ORIG_HEAD`) and treat as REJECT with the failure
+  output. Then push it; if the push is rejected as non-fast-forward, a
+  sibling critic just pushed to `feature_branch` first — `git pull --rebase`
+  the feature branch and retry the merge once. Set story `status: merged`
+  (merged-to-feature). Then, if EVERY story
+  of the requirement now has `status: merged`:
+  `gh pr create --fill --base <default_branch> --head <feature_branch>`,
+  record the URL as `feature_pr:` in the requirement frontmatter, and set
+  the requirement `status: done` (the human merges the PR). If `gh pr
+  create` fails because a PR for `feature_branch` already exists, fetch its
+  URL instead (`gh pr view <feature_branch> --json url`), record that as
+  `feature_pr`, and treat as success.
+  Conflicts merging into the feature branch: REJECT with report
+  "rebase onto <feature_branch> and resolve conflicts in <files>", exactly
+  like the default_branch conflict rule.
 
 Then: append `### Attempt <N> — approved (<timestamp>)` + one line on what you checked; set story `status: merged` (or `pr_open`); clean up both worktrees (`git worktree remove` yours and the builder's, `--force` if needed) and for `merge` mode delete the story branch (`git branch -d <branch>`). Exit.
 

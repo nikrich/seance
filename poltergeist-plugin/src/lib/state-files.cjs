@@ -3,7 +3,7 @@
 // repo README. Yaml-lite frontmatter: scalars, inline arrays, quoted strings —
 // exactly what séance state files use, nothing more.
 
-const { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } = require('node:fs');
+const { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 function parseScalar(raw) {
@@ -84,11 +84,14 @@ function lastTickTs(wsPath) {
 }
 
 function readWorkspaceStatus(wsPath) {
-  const requirements = readMdDir(join(wsPath, 'state', 'requirements')).map(({ attrs }) => ({
+  const requirements = readMdDir(join(wsPath, 'state', 'requirements')).map(({ attrs, body }) => ({
     id: String(attrs.id ?? ''),
     title: String(attrs.title ?? ''),
     status: String(attrs.status ?? ''),
     priority: String(attrs.priority ?? 'normal'),
+    spec: specSection(body),
+    featurePr: attrs.feature_pr == null ? null : String(attrs.feature_pr),
+    featurePrAck: attrs.feature_pr_ack === true,
   }));
 
   const stories = readMdDir(join(wsPath, 'state', 'stories')).map(({ attrs, body }) => ({
@@ -137,7 +140,7 @@ function readWorkspaceStatus(wsPath) {
           };
         });
 
-  return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts };
+  return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts, questions: readQuestions(wsPath) };
 }
 
 // A human "resolving" an attention item = moving it out of attention/ so the
@@ -154,4 +157,110 @@ function dismissAttention(wsPath, name) {
   renameSync(src, join(dismissedDir, name));
 }
 
-module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive, dismissAttention };
+const QUESTION_NAME_RE = /^[\w][\w.\- ]*$/;
+const REQ_ID_RE = /^[A-Z][A-Z0-9-]{1,31}$/;
+
+// Splits a state file into its frontmatter block (opening "---" through the
+// closing "---", inclusive) and everything after it, so status/flag edits
+// can be scoped to the frontmatter and never accidentally match a body line
+// that happens to look like `status: open` or similar.
+function splitFrontmatter(raw, label) {
+  const end = raw.startsWith('---') ? raw.indexOf('\n---', 3) : -1;
+  if (end === -1) throw new Error(`${label} has no frontmatter`);
+  return { head: raw.slice(0, end + 4), rest: raw.slice(end + 4) };
+}
+
+function specSection(body) {
+  // stops at the next h2 (## Answer, ## Spec feedback, …) but not at the
+  // spec's own ### subheadings
+  const m = body.match(/## Spec\n([\s\S]*?)(?=\n## |$)/);
+  return m ? m[1].trim() : '';
+}
+
+function readQuestions(wsPath) {
+  const dir = join(wsPath, 'questions');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.md'))
+    .sort()
+    .map((f) => {
+      const { attrs, body } = parseFrontmatter(readFileSync(join(dir, f), 'utf-8'));
+      const q = body.match(/## Question\n([\s\S]*?)(?=\n## Answer|$)/);
+      return {
+        file: f,
+        id: String(attrs.id ?? f.replace(/\.md$/, '')),
+        story: attrs.story == null ? null : String(attrs.story),
+        requirement: attrs.requirement == null ? null : String(attrs.requirement),
+        status: String(attrs.status ?? 'open'),
+        question: q ? q[1].trim() : body.trim(),
+      };
+    })
+    .filter((q) => q.status === 'open');
+}
+
+function answerQuestion(wsPath, file, text) {
+  if (typeof file !== 'string' || !QUESTION_NAME_RE.test(file) || file.includes('..')) {
+    throw new Error(`invalid question file: ${file}`);
+  }
+  const p = join(wsPath, 'questions', file);
+  if (!existsSync(p)) throw new Error(`question not found: ${file}`);
+  const raw = readFileSync(p, 'utf-8');
+  const { head, rest } = splitFrontmatter(raw, `question ${file}`);
+  if (!/^status: open$/m.test(head)) throw new Error(`question already answered: ${file}`);
+  const newHead = head.replace(/^status: open$/m, 'status: answered');
+  writeFileSync(p, newHead + rest + `\n## Answer\n\n${text.trim()}\n`);
+}
+
+function writeSpec(wsPath, reqId, specText, opts) {
+  if (typeof reqId !== 'string' || !REQ_ID_RE.test(reqId)) {
+    throw new Error(`invalid requirement id: ${reqId}`);
+  }
+  const p = join(wsPath, 'state', 'requirements', `${reqId}.md`);
+  if (!existsSync(p)) throw new Error(`requirement not found: ${reqId}`);
+  const raw = readFileSync(p, 'utf-8');
+  let { head, rest } = splitFrontmatter(raw, `requirement ${reqId}`);
+  // A stale Poltergeist snapshot re-applying approve/revise after the
+  // requirement already moved on (e.g. two clicks, or a second window) must
+  // not silently re-transition state out from under the planner.
+  const statusMatch = head.match(/^status: (.*)$/m);
+  if (!statusMatch || statusMatch[1].trim() !== 'spec_review') {
+    throw new Error(`requirement ${reqId} is not awaiting spec review`);
+  }
+  const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const text = String(specText ?? '').trim();
+  if (text) {
+    const spec = `## Spec\n\n${text}\n`;
+    rest = /## Spec\n/.test(rest)
+      ? rest.replace(/## Spec\n[\s\S]*?(?=\n## |$)/, spec)
+      : `${rest.trimEnd()}\n\n${spec}`;
+  }
+  if (opts.mode === 'approve') {
+    head = head.replace(/^status: .*$/m, 'status: planning');
+    if (!/^spec_approved_at: /m.test(head)) {
+      head = head.replace(/^status: planning$/m, `status: planning\nspec_approved_at: ${ts}`);
+    }
+  } else {
+    head = head.replace(/^status: .*$/m, 'status: speccing');
+    rest = `${rest.trimEnd()}\n\n## Spec feedback (${ts})\n\n${String(opts.feedback ?? '').trim()}\n`;
+  }
+  writeFileSync(p, head + rest);
+}
+
+// The "waiting on you" PR card acknowledges the human has seen a feature is
+// ready to merge — idempotent so re-clicking (or a stale snapshot re-firing
+// the click) is harmless.
+function ackFeaturePr(wsPath, reqId) {
+  if (typeof reqId !== 'string' || !REQ_ID_RE.test(reqId)) {
+    throw new Error(`invalid requirement id: ${reqId}`);
+  }
+  const p = join(wsPath, 'state', 'requirements', `${reqId}.md`);
+  if (!existsSync(p)) throw new Error(`requirement not found: ${reqId}`);
+  const raw = readFileSync(p, 'utf-8');
+  const { head, rest } = splitFrontmatter(raw, `requirement ${reqId}`);
+  if (!/^feature_pr: /m.test(head)) throw new Error(`requirement ${reqId} has no feature_pr`);
+  if (/^feature_pr_ack: true$/m.test(head)) return;
+  const newHead = head.replace(/\n---$/, '\nfeature_pr_ack: true\n---');
+  writeFileSync(p, newHead + rest);
+}
+
+module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec, ackFeaturePr };

@@ -266,7 +266,7 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'end' }}>
                 <Field theme={theme} label="integration">
-                  <Segmented theme={theme} value={r.integration} options={['pr', 'merge']} onChange={(v) => setRepo(i, { integration: v })} disabled={busy} />
+                  <Segmented theme={theme} value={r.integration} options={['pr', 'merge', 'feature-pr']} onChange={(v) => setRepo(i, { integration: v })} disabled={busy} />
                 </Field>
                 <Field theme={theme} label="test command (critic runs this on every verdict)">
                   <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }} placeholder="npm test"
@@ -473,6 +473,102 @@ function HeartbeatBanner({ theme, lastTickTs, onRevive, busy }) {
   );
 }
 
+// ---- waiting on you: spec reviews, questions, feature PRs ----------------
+
+function SpecReviewCard({ theme, api, ws, act, req }) {
+  const [text, setText] = useState(req.spec);
+  const [feedback, setFeedback] = useState('');
+  useEffect(() => setText(req.spec), [req.id, req.spec]);
+  const field = {
+    fontFamily: theme.fontMono, fontSize: 12, lineHeight: 1.55, color: theme.ink0,
+    background: theme.paper, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rSm,
+    padding: '9px 11px', outline: 'none', width: '100%', boxSizing: 'border-box',
+  };
+  return (
+    <Panel theme={theme} title={`spec review — ${req.id}`} subtitle={req.title}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <textarea rows={10} style={{ ...field, resize: 'vertical', minHeight: 140 }}
+          value={text} onChange={(e) => setText(e.target.value)} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center' }}>
+          <input style={{ ...field, fontFamily: 'inherit', fontSize: 12.5 }}
+            placeholder="feedback for the planner (required to request changes)"
+            value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+          <Btn theme={theme} variant="ghost" disabled={!feedback.trim()}
+            onClick={() => act(() => api.ipc.invoke('spec:revise', ws, req.id, text, feedback))}>
+            request changes
+          </Btn>
+          <Btn theme={theme} variant="primary" icon={<Check size={13} />} disabled={!text.trim()}
+            onClick={() => act(() => api.ipc.invoke('spec:approve', ws, req.id, text))}>
+            approve spec
+          </Btn>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function QuestionCard({ theme, api, ws, act, q }) {
+  const [answer, setAnswer] = useState('');
+  return (
+    <Panel theme={theme} title={`the séance asks — ${q.story ?? q.requirement}`} subtitle={q.file}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, color: theme.ink1, maxHeight: 180, overflowY: 'auto' }}>{q.question}</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <input
+            style={{
+              flex: 1, fontFamily: 'inherit', fontSize: 12.5, color: theme.ink0,
+              background: theme.paper, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rSm,
+              padding: '9px 11px', outline: 'none',
+            }}
+            placeholder="your answer — unblocks the story on the next tick"
+            value={answer} onChange={(e) => setAnswer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && answer.trim()) {
+                void act(() => api.ipc.invoke('question:answer', ws, q.file, answer));
+              }
+            }}
+          />
+          <Btn theme={theme} variant="primary" disabled={!answer.trim()}
+            onClick={() => act(() => api.ipc.invoke('question:answer', ws, q.file, answer))}>
+            answer
+          </Btn>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function WaitingOnYou({ theme, api, ws, act, snap }) {
+  const specs = (snap?.requirements ?? []).filter((r) => r.status === 'spec_review');
+  const questions = snap?.questions ?? [];
+  const prs = (snap?.requirements ?? []).filter((r) => r.featurePr && r.status === 'done' && !r.featurePrAck);
+  const count = specs.length + questions.length + prs.length;
+  if (count === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Sparkles size={12} color={theme.neon} />
+        <Eyebrow theme={theme}>waiting on you · {count}</Eyebrow>
+      </div>
+      {specs.map((r) => <SpecReviewCard key={r.id} theme={theme} api={api} ws={ws} act={act} req={r} />)}
+      {questions.map((q) => <QuestionCard key={q.file} theme={theme} api={api} ws={ws} act={act} q={q} />)}
+      {prs.map((r) => (
+        <div key={r.id} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: theme.neonMist, border: `1px solid ${theme.neon}`,
+          borderRadius: theme.rMd, padding: '10px 13px', fontSize: 12.5,
+        }}>
+          <GitBranch size={14} color={theme.neonInk} />
+          <span style={{ color: theme.ink0, fontWeight: 600 }}>{r.id}</span>
+          <span style={{ color: theme.ink1, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title} — feature complete, one PR awaits your merge</span>
+          <Btn theme={theme} variant="ghost" onClick={() => api.openExternal(r.featurePr)}>open PR</Btn>
+          <Btn theme={theme} variant="ghost" onClick={() => act(() => api.ipc.invoke('feature-pr:ack', ws, r.id))}>dismiss</Btn>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSteerText }) {
   const stories = snap?.stories ?? [];
   const inbox = snap?.inbox ?? [];
@@ -586,6 +682,8 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
           onRevive={() => act(() => api.ipc.invoke('heartbeat:start', ws))}
         />
       )}
+
+      <WaitingOnYou theme={theme} api={api} ws={ws} act={act} snap={snap} />
 
       {snap?.attention?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

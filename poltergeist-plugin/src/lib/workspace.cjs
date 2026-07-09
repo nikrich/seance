@@ -21,7 +21,7 @@ function parseConfig(text) {
     name,
     url: r?.url ?? '',
     default_branch: r?.default_branch ?? 'main',
-    integration: r?.integration === 'merge' ? 'merge' : 'pr',
+    integration: ['merge', 'feature-pr'].includes(r?.integration) ? r.integration : 'pr',
     test_command: r?.test_command ?? '',
   }));
   const extra = {};
@@ -75,8 +75,8 @@ function validateConfigModel(m) {
     if (!r?.name || !NAME_RE.test(r.name)) errors.push(`repo name "${r?.name ?? ''}" is invalid`);
     if (!r?.url) errors.push(`repo ${r?.name ?? '?'}: url is required`);
     else if (r.url.startsWith('-')) errors.push(`repo ${r?.name ?? '?'}: url must not start with "-"`);
-    if (r?.integration !== 'pr' && r?.integration !== 'merge') {
-      errors.push(`repo ${r?.name ?? '?'}: integration must be "pr" or "merge"`);
+    if (!['pr', 'merge', 'feature-pr'].includes(r?.integration)) {
+      errors.push(`repo ${r?.name ?? '?'}: integration must be "pr", "merge", or "feature-pr"`);
     }
     if (!r?.default_branch || r.default_branch.startsWith('-')) {
       errors.push(`repo ${r?.name ?? '?'}: default_branch is invalid`);
@@ -95,7 +95,7 @@ function validateConfigModel(m) {
 
 const CONTRACT_DIRS = [
   'inbox/processed', 'state/requirements', 'state/stories', 'state/agents',
-  'attention', 'journal', 'repos', 'worktrees', 'logs', '.claude',
+  'attention', 'journal', 'repos', 'worktrees', 'logs', '.claude', 'questions',
 ];
 
 async function syncRepos(wsPath, config, runGit) {
@@ -113,6 +113,33 @@ async function syncRepos(wsPath, config, runGit) {
   return clones;
 }
 
+// Registers the Poltergeist vault MCP server for every claude agent spawned
+// in this workspace (project-scoped .mcp.json). `ghostbrain-mcp` resolves
+// from PATH at agent runtime; if it isn't installed the agents' knowledge
+// chain treats the failed connection as "no answer" and moves on.
+function ensureMcpConfig(wsPath) {
+  const file = join(wsPath, '.mcp.json');
+  if (existsSync(file)) return false;
+  writeFileSync(
+    file,
+    JSON.stringify({ mcpServers: { poltergeist: { command: 'ghostbrain-mcp', args: [] } } }, null, 2) + '\n',
+  );
+  return true;
+}
+
+// Headless `claude -p` agents (planner/builder/critic/manager) only load
+// project-scoped MCP servers (.mcp.json) when the project is trusted; this
+// settings file trusts it automatically so the poltergeist MCP server the
+// agents rely on for the knowledge chain actually connects.
+function ensureAgentSettings(wsPath) {
+  const dir = join(wsPath, '.claude');
+  const file = join(dir, 'settings.local.json');
+  if (existsSync(file)) return false;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(file, '{"enableAllProjectMcpServers": true}\n');
+  return true;
+}
+
 async function scaffoldWorkspace({ root, name, config, seanceRepo, runGit }) {
   if (typeof name !== 'string' || !NAME_RE.test(name)) {
     throw new Error(`invalid workspace name "${name}" — letters, digits, . _ - only`);
@@ -125,6 +152,8 @@ async function scaffoldWorkspace({ root, name, config, seanceRepo, runGit }) {
   }
   for (const d of CONTRACT_DIRS) mkdirSync(join(wsPath, d), { recursive: true });
   writeFileSync(join(wsPath, 'config.yaml'), configToYaml({ ...config, workspace: name }));
+  ensureMcpConfig(wsPath);
+  ensureAgentSettings(wsPath);
   try {
     symlinkSync(skillsSrc, join(wsPath, '.claude', 'skills'));
   } catch (e) {
@@ -134,4 +163,4 @@ async function scaffoldWorkspace({ root, name, config, seanceRepo, runGit }) {
   return { wsPath, clones };
 }
 
-module.exports = { NAME_RE, parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos };
+module.exports = { NAME_RE, parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos, ensureMcpConfig, ensureAgentSettings };
