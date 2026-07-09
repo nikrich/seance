@@ -1,33 +1,84 @@
 // Séance plugin UI. Framework-free contract with Poltergeist: we export
 // mount(el, api) and bundle our own React. Styling uses the host's theme CSS
-// variables (api.theme) with dark fallbacks so the screen blends into the app.
+// variables — the guaranteed api.theme set as fallbacks, plus the host's
+// extended tokens via var() (the plugin renders in the host document, so
+// they resolve live and follow theme switches). Layout and states follow the
+// "Séance — summon & watch the fleet" screen in the ghostbrain Design System.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import {
+  Activity,
+  AlertOctagon,
+  AlertTriangle,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  Check,
+  Cog,
+  Compass,
+  Ghost,
+  GitBranch,
+  Hammer,
+  HeartCrack,
+  LayoutGrid,
+  MessageSquare,
+  Moon,
+  Cpu,
+  RotateCcw,
+  ScanEye,
+  Skull,
+  Sparkles,
+  Square,
+  Terminal,
+  User,
+  X,
+} from 'lucide-react';
 
 const COLUMNS = [
-  { key: 'backlog', label: 'backlog', statuses: ['pending'] },
-  { key: 'building', label: 'building', statuses: ['building'] },
-  { key: 'verifying', label: 'verifying', statuses: ['verifying', 'approved'] },
-  { key: 'shipped', label: 'shipped', statuses: ['merged', 'pr_open'] },
-  { key: 'blocked', label: 'blocked', statuses: ['blocked'] },
+  { key: 'backlog', label: 'backlog', tone: 'outline', statuses: ['pending'] },
+  { key: 'building', label: 'building', tone: 'neon', statuses: ['building'] },
+  { key: 'verifying', label: 'verifying', tone: 'fog', statuses: ['verifying', 'approved'] },
+  { key: 'shipped', label: 'shipped', tone: 'moss', statuses: ['merged', 'pr_open'] },
+  { key: 'blocked', label: 'blocked', tone: 'oxblood', statuses: ['blocked'] },
 ];
 
+// Extended host tokens with dark fallbacks. The api.theme contract guarantees
+// only the core set; everything else falls back if the host ever renames it.
 function useTheme(api) {
   return useMemo(() => {
     const t = api.theme ?? {};
     const v = (name, fallback) => (t[name] && t[name] !== '' ? t[name] : fallback);
-    return {
+    const core = {
       paper: v('--paper', '#0E0F12'),
-      vellum: v('--vellum', '#16181D'),
-      fog: v('--fog', '#22252C'),
+      vellum: v('--vellum', '#15171B'),
+      fog: v('--fog', '#1E2026'),
       hairline: v('--hairline', '#22252C'),
+      hairline2: v('--hairline-2', 'rgba(242,243,245,0.14)'),
       ink0: v('--ink-0', '#E8E6E3'),
       ink1: v('--ink-1', '#A8A6A3'),
       ink2: v('--ink-2', '#6B6966'),
       neon: v('--neon', '#B8F53D'),
       moss: v('--moss', '#5A8A4A'),
       oxblood: v('--oxblood', '#B33A3A'),
+    };
+    // live var() references, falling back to the contract-resolved values
+    return {
+      ...core,
+      ink3: `var(--ink-3, ${core.ink2})`,
+      hairline3: `var(--hairline-3, ${core.hairline2})`,
+      neonInk: `var(--neon-ink, ${core.neon})`,
+      neonMist: 'var(--neon-mist, #1F2A0A)',
+      mossMist: 'var(--moss-mist, #16201A)',
+      oxbloodMist: 'var(--oxblood-mist, #2A1411)',
+      pillMossFg: `var(--pill-moss-fg, ${core.moss})`,
+      pillOxbloodFg: `var(--pill-oxblood-fg, ${core.oxblood})`,
+      rSm: 'var(--r-sm, 4px)',
+      rMd: 'var(--r-md, 8px)',
+      rLg: 'var(--r-lg, 12px)',
+      rPill: 'var(--r-pill, 999px)',
+      fontMono: "var(--font-mono, ui-monospace, 'SF Mono', Menlo, monospace)",
+      fontDisplay: 'var(--font-display, inherit)',
     };
   }, [api]);
 }
@@ -40,45 +91,447 @@ function relTime(iso) {
   return `${Math.round(s / 3600)}h ago`;
 }
 
-function Card({ children, theme, tone }) {
+// ---- small DS-alike primitives (the host's components aren't importable
+// from a plugin, so these mirror Pill/Btn/Panel/Eyebrow on the same tokens) --
+
+function Pill({ theme, tone = 'fog', children }) {
+  const tones = {
+    neon: { background: theme.neonMist, color: theme.neonInk, border: '1px solid transparent' },
+    moss: { background: theme.mossMist, color: theme.pillMossFg, border: '1px solid transparent' },
+    oxblood: { background: theme.oxbloodMist, color: theme.pillOxbloodFg, border: '1px solid transparent' },
+    fog: { background: theme.fog, color: theme.ink1, border: '1px solid transparent' },
+    outline: { background: 'transparent', color: theme.ink2, border: `1px solid ${theme.hairline2}` },
+  };
   return (
-    <div
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '2px 9px', borderRadius: theme.rPill,
+      fontFamily: theme.fontMono, fontSize: 10.5, lineHeight: 1.6, whiteSpace: 'nowrap',
+      ...(tones[tone] ?? tones.fog),
+    }}>{children}</span>
+  );
+}
+
+function Eyebrow({ theme, children }) {
+  return (
+    <span style={{
+      fontFamily: theme.fontMono, fontSize: 10, textTransform: 'uppercase',
+      letterSpacing: '0.1em', color: theme.ink2,
+    }}>{children}</span>
+  );
+}
+
+function Btn({ theme, variant = 'ghost', icon, disabled, onClick, title, children }) {
+  const variants = {
+    primary: { background: theme.neon, color: '#0E0F12', border: '1px solid transparent', fontWeight: 600 },
+    ghost: { background: 'transparent', color: theme.ink1, border: `1px solid ${theme.hairline2}` },
+    danger: { background: theme.oxblood, color: '#FFF', border: '1px solid transparent', fontWeight: 600 },
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
       style={{
-        border: `1px solid ${tone === 'alert' ? theme.oxblood : theme.hairline}`,
-        background: theme.vellum,
-        borderRadius: 8,
-        padding: '8px 10px',
-        fontSize: 12,
-        color: theme.ink0,
-        lineHeight: 1.4,
+        display: 'inline-flex', alignItems: 'center', gap: 7,
+        padding: '7px 13px', borderRadius: theme.rSm, fontSize: 12, fontFamily: 'inherit',
+        cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
+        ...(variants[variant] ?? variants.ghost),
       }}
     >
+      {icon}
       {children}
+    </button>
+  );
+}
+
+function Panel({ theme, title, subtitle, action, children, style }) {
+  return (
+    <section style={{
+      border: `1px solid ${theme.hairline}`, borderRadius: theme.rLg,
+      background: theme.vellum, display: 'flex', flexDirection: 'column', minHeight: 0, ...style,
+    }}>
+      <header style={{
+        display: 'flex', alignItems: 'baseline', gap: 10,
+        borderBottom: `1px solid ${theme.hairline}`, padding: '11px 15px',
+      }}>
+        <span style={{ fontSize: 13.5, fontWeight: 600, color: theme.ink0 }}>{title}</span>
+        {subtitle && <Eyebrow theme={theme}>{subtitle}</Eyebrow>}
+        {action && <span style={{ marginLeft: 'auto' }}>{action}</span>}
+      </header>
+      <div style={{ padding: '13px 15px', minHeight: 0, display: 'flex', flexDirection: 'column' }}>{children}</div>
+    </section>
+  );
+}
+
+// ---- board -----------------------------------------------------------------
+
+const KIND_ICON = {
+  'tick-spawn': [Sparkles, 'neon'],
+  'tick-reap': [Moon, 'ink'],
+  'tick-kill': [Square, 'oxblood'],
+  human: [User, 'ink'],
+  handoff: [ArrowRight, 'ink'],
+  rejected: [X, 'oxblood'],
+  approved: [Check, 'moss'],
+  blocked: [AlertOctagon, 'oxblood'],
+  'agent-died': [Skull, 'oxblood'],
+  attention: [AlertTriangle, 'oxblood'],
+};
+
+function StoryCard({ theme, story, colKey }) {
+  const blocked = colKey === 'blocked';
+  const shipped = colKey === 'shipped';
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: theme.paper,
+        border: `1px solid ${hover && !blocked ? theme.hairline3 : theme.hairline}`,
+        borderLeft: blocked ? `2px solid ${theme.oxblood}` : undefined,
+        borderRadius: theme.rMd,
+        padding: '10px 11px',
+        display: 'flex', flexDirection: 'column', gap: 7,
+        opacity: shipped ? 0.82 : 1,
+        transition: 'border-color 120ms',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.ink2, letterSpacing: '0.02em' }}>{story.id}</span>
+        <span style={{ flex: 1 }} />
+        {story.attempts > 1 && (
+          <span title="attempts" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3,
+            fontFamily: theme.fontMono, fontSize: 10,
+            color: blocked ? theme.pillOxbloodFg : theme.ink2,
+          }}>
+            <RotateCcw size={10} />×{story.attempts}
+          </span>
+        )}
+      </div>
+      <div style={{
+        fontSize: 13, lineHeight: 1.4, color: shipped ? theme.ink1 : theme.ink0,
+        display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+      }}>{story.title || '(untitled)'}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Pill theme={theme} tone={COLUMNS.find((c) => c.key === colKey)?.tone ?? 'fog'}>
+          {colKey === 'building' && <span className="seance-dot" style={{ width: 5, height: 5, borderRadius: '50%', background: theme.neon }} />}
+          {colKey === 'backlog' ? 'queued' : colKey}
+        </Pill>
+        <span style={{ flex: 1 }} />
+        {story.repo && <span style={{ fontFamily: theme.fontMono, fontSize: 10, color: theme.ink3 }}>{story.repo}</span>}
+      </div>
     </div>
   );
 }
 
-const KIND_GLYPH = {
-  'tick-spawn': '⚡',
-  'tick-reap': '↩',
-  'tick-kill': '☠',
-  human: '☺',
-  handoff: '⇢',
-  rejected: '✗',
-  approved: '✓',
-  blocked: '⛔',
-  'agent-died': '☠',
-  attention: '⚠',
+function HeartbeatBanner({ theme, lastTickTs, onRevive, busy }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`,
+      borderRadius: theme.rMd, padding: '11px 15px',
+    }}>
+      <HeartCrack size={18} color={theme.oxblood} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: theme.ink0 }}>the heartbeat is quiet</div>
+        <div style={{ fontSize: 12, color: theme.pillOxbloodFg, marginTop: 1 }}>
+          last tick {relTime(lastTickTs)} — no new spawns until the séance is revived.
+        </div>
+      </div>
+      <Btn theme={theme} variant="danger" icon={<Activity size={13} />} onClick={onRevive} disabled={busy}>
+        revive séance
+      </Btn>
+    </div>
+  );
+}
+
+function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSteerText }) {
+  const stories = snap?.stories ?? [];
+  const priorities = ['low', 'normal', 'high'];
+
+  const field = {
+    fontFamily: 'inherit', fontSize: 13, color: theme.ink0,
+    background: theme.paper, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rSm,
+    padding: '8px 11px', outline: 'none', width: '100%', boxSizing: 'border-box',
+  };
+
+  const composer = (
+    <Panel theme={theme} title="summon a requirement" subtitle="acceptance criteria, not implementation">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', gap: 10, alignItems: 'center' }}>
+          <input
+            style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }}
+            placeholder="REQ-42"
+            value={form.id}
+            onChange={(e) => setForm({ ...form, id: e.target.value.toUpperCase() })}
+          />
+          <input
+            style={field}
+            placeholder="title — one line"
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+          />
+          <div style={{
+            display: 'inline-flex', gap: 3, padding: 3,
+            background: theme.paper, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rSm,
+          }}>
+            {priorities.map((p) => {
+              const on = form.priority === p;
+              return (
+                <button key={p} onClick={() => setForm({ ...form, priority: p })} style={{
+                  padding: '5px 11px', borderRadius: 4, cursor: 'pointer', border: 'none',
+                  background: on ? theme.neonMist : 'transparent',
+                  color: on ? theme.neonInk : theme.ink2,
+                  fontFamily: theme.fontMono, fontSize: 11, fontWeight: on ? 600 : 500,
+                }}>{p}</button>
+              );
+            })}
+          </div>
+        </div>
+        <textarea
+          rows={3}
+          style={{ ...field, resize: 'vertical', lineHeight: 1.5, minHeight: 76 }}
+          placeholder="describe what you want and why — acceptance criteria, not implementation steps"
+          value={form.body}
+          onChange={(e) => setForm({ ...form, body: e.target.value })}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{
+            fontFamily: theme.fontMono, fontSize: 10.5, color: theme.ink3,
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            <Sparkles size={12} color="currentColor" />
+            the planner will split this into stories before spawning
+          </span>
+          <span style={{ flex: 1 }} />
+          <Btn
+            theme={theme}
+            variant="primary"
+            icon={<Sparkles size={13} />}
+            disabled={!ws}
+            onClick={() => act(async () => {
+              await api.ipc.invoke('summon', ws, form);
+              setForm({ id: '', title: '', priority: 'normal', body: '' });
+            })}
+          >
+            summon
+          </Btn>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: `1px solid ${theme.hairline}`, paddingTop: 10 }}>
+          <Compass size={13} color={theme.ink3} style={{ flexShrink: 0 }} />
+          <input
+            style={{ ...field, border: 'none', background: 'transparent', padding: '2px 0', fontSize: 12.5 }}
+            placeholder='steer the running séance: "pause repo x", "REQ-41 first"…'
+            value={steerText}
+            onChange={(e) => setSteerText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && steerText.trim()) {
+                void act(async () => {
+                  await api.ipc.invoke('steer', ws, steerText);
+                  setSteerText('');
+                });
+              }
+            }}
+          />
+        </div>
+      </div>
+    </Panel>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', minHeight: 0, paddingBottom: 4 }}>
+      {snap && !hb.running && (
+        <HeartbeatBanner
+          theme={theme}
+          lastTickTs={snap?.lastTickTs}
+          onRevive={() => act(() => api.ipc.invoke('heartbeat:start', ws))}
+        />
+      )}
+
+      {snap?.attention?.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={12} color={theme.oxblood} />
+            <Eyebrow theme={theme}>needs you · {snap.attention.length}</Eyebrow>
+          </div>
+          {snap.attention.map((a) => (
+            <div key={a.name} style={{
+              background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`,
+              borderRadius: theme.rMd, padding: '10px 13px', fontSize: 12.5, lineHeight: 1.45,
+            }}>
+              <strong style={{ color: theme.ink0 }}>{a.name}</strong>
+              <div style={{ whiteSpace: 'pre-wrap', color: theme.pillOxbloodFg, marginTop: 4, maxHeight: 120, overflow: 'auto' }}>{a.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {snap && stories.length === 0 ? (
+        <Panel theme={theme} title="board" subtitle="nothing summoned yet">
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '28px 20px' }}>
+            <LayoutGrid size={22} color={theme.ink3} />
+            <div style={{ fontSize: 13, color: theme.ink2, textAlign: 'center', maxWidth: 420, lineHeight: 1.5 }}>
+              the board is quiet. summon your first requirement below and the séance will split it into stories and spawn a fleet.
+            </div>
+          </div>
+        </Panel>
+      ) : (
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12,
+          opacity: snap && !hb.running ? 0.62 : 1, filter: snap && !hb.running ? 'saturate(0.7)' : 'none',
+          transition: 'opacity 200ms',
+        }}>
+          {COLUMNS.map((col) => {
+            const items = stories.filter((s) => col.statuses.includes(s.status));
+            return (
+              <div key={col.key} style={{ display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 20, padding: '0 2px' }}>
+                  <Eyebrow theme={theme}>{col.label}</Eyebrow>
+                  <Pill theme={theme} tone={col.tone}>{items.length}</Pill>
+                </div>
+                {items.length === 0 ? (
+                  <div style={{
+                    border: `1px dashed ${theme.hairline2}`, borderRadius: theme.rMd,
+                    padding: '13px 10px', fontFamily: theme.fontMono, fontSize: 10.5,
+                    color: theme.ink3, textAlign: 'center',
+                  }}>empty</div>
+                ) : (
+                  items.map((s) => <StoryCard key={s.id} theme={theme} story={s} colKey={col.key} />)
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {composer}
+    </div>
+  );
+}
+
+// ---- under the hood --------------------------------------------------------
+
+const ROLE_ICON = {
+  planner: Compass,
+  builder: Hammer,
+  critic: ScanEye,
+  manager: Cog,
+  heartbeat: Activity,
 };
 
-function UnderTheHood({ api, ws, theme, input }) {
+function agentPill(a) {
+  if (a.source === 'system') return ['system', 'outline'];
+  if (a.source === 'reaped') return ['reaped', 'fog'];
+  return a.alive ? ['alive', 'neon'] : ['dead', 'oxblood'];
+}
+
+function LogTail({ theme, api, ws, agentId }) {
+  const [logText, setLogText] = useState('');
+  const [paused, setPaused] = useState(false);
+  const nextByteRef = useRef(0);
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    if (!agentId) return;
+    let stop = false;
+    nextByteRef.current = 0;
+    setLogText('');
+    setPaused(false);
+    const pull = async () => {
+      try {
+        const r = await api.ipc.invoke('log:read', ws, agentId, nextByteRef.current);
+        if (stop) return;
+        if (r.chunk) {
+          nextByteRef.current = r.nextByte;
+          setLogText((prev) => (prev + r.chunk).slice(-400000));
+        }
+      } catch {
+        // ignore transient read errors
+      }
+    };
+    void pull();
+    const t = setInterval(pull, 2000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [api, ws, agentId]);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (el && !paused) el.scrollTop = el.scrollHeight;
+  }, [logText, paused, agentId]);
+
+  const onScroll = (e) => {
+    const el = e.currentTarget;
+    setPaused(el.scrollHeight - el.scrollTop - el.clientHeight >= 32);
+  };
+
+  const colorFor = (ln) => {
+    const s = ln.trimStart();
+    if (s.startsWith('✗') || s.startsWith('fatal') || s.startsWith('Error')) return theme.pillOxbloodFg;
+    if (s.startsWith('✓')) return theme.pillMossFg;
+    if (s.startsWith('$')) return theme.neonInk;
+    if (s.startsWith('[')) return theme.ink3;
+    return theme.ink1;
+  };
+
+  // color only the visible tail; the backlog stays one cheap block
+  const lines = logText.split('\n');
+  const tail = lines.slice(-800);
+  const head = lines.length > 800 ? lines.slice(0, -800).join('\n') : '';
+
+  return (
+    <section style={{
+      border: `1px solid ${theme.hairline}`, borderRadius: theme.rLg, background: theme.vellum,
+      display: 'flex', flexDirection: 'column', minHeight: 0,
+    }}>
+      <header style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${theme.hairline}`, padding: '10px 14px' }}>
+        <Terminal size={14} color={theme.ink2} />
+        <span style={{ fontSize: 13, fontWeight: 500, color: theme.ink0 }}>log tail</span>
+        <span style={{ fontFamily: theme.fontMono, fontSize: 10, color: theme.ink2 }}>{agentId ?? '—'}</span>
+        <span style={{ flex: 1 }} />
+        {paused ? (
+          <button onClick={() => setPaused(false)} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+            border: `1px solid ${theme.neon}`, background: theme.neonMist, color: theme.neonInk,
+            borderRadius: theme.rPill, padding: '3px 10px', fontFamily: theme.fontMono, fontSize: 10.5,
+          }}>
+            <ArrowDown size={11} /> scroll paused · resume
+          </button>
+        ) : (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: theme.fontMono, fontSize: 10.5, color: theme.ink2 }}>
+            <span className="seance-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: theme.neon }} /> following
+          </span>
+        )}
+      </header>
+      <div
+        ref={boxRef}
+        onScroll={onScroll}
+        style={{
+          flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 15px', background: theme.paper,
+          borderRadius: `0 0 ${'var(--r-lg, 12px)'} ${'var(--r-lg, 12px)'}`,
+          fontFamily: theme.fontMono, fontSize: 11.5, lineHeight: 1.6,
+          whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+        }}
+      >
+        {!logText && <span style={{ color: theme.ink3 }}>(log is empty)</span>}
+        {head && <div style={{ color: theme.ink3 }}>{head}</div>}
+        {tail.map((ln, i) => (
+          <div key={i} style={{ color: colorFor(ln) }}>{ln || ' '}</div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function UnderTheHood({ theme, api, ws }) {
   const [events, setEvents] = useState([]);
   const [agents, setAgents] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [logText, setLogText] = useState('');
-  const nextByteRef = useRef(0);
-  const preRef = useRef(null);
-  const atBottomRef = useRef(true);
 
   const refresh = useCallback(async () => {
     try {
@@ -101,111 +554,92 @@ function UnderTheHood({ api, ws, theme, input }) {
     };
   }, [api, ws, refresh]);
 
-  // log tailing for the selected agent
+  // default the tail to the most interesting agent: first live one, else first
   useEffect(() => {
-    if (!selected) return;
-    let stop = false;
-    nextByteRef.current = 0;
-    setLogText('');
-    const pull = async () => {
-      try {
-        const r = await api.ipc.invoke('log:read', ws, selected, nextByteRef.current);
-        if (stop) return;
-        if (r.chunk) {
-          nextByteRef.current = r.nextByte;
-          setLogText((prev) => (prev + r.chunk).slice(-400000));
-        }
-      } catch {
-        // ignore transient read errors
-      }
-    };
-    void pull();
-    const t = setInterval(pull, 2000);
-    return () => {
-      stop = true;
-      clearInterval(t);
-    };
-  }, [api, ws, selected]);
+    if (selected || agents.length === 0) return;
+    setSelected((agents.find((a) => a.alive) ?? agents[0]).id);
+  }, [agents, selected]);
 
-  useEffect(() => {
-    const el = preRef.current;
-    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [logText]);
+  const roster = useMemo(
+    () => [...agents].sort((a, b) => (a.source === 'system' ? 1 : b.source === 'system' ? -1 : 0)).slice(0, 20),
+    [agents],
+  );
+  const alive = agents.filter((a) => a.alive).length;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: selected ? '5fr 7fr' : '1fr', gap: 12, minHeight: 0, flex: 1 }}>
-      <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
-        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: theme.ink2 }}>
-          agents
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'minmax(230px, 3fr) minmax(210px, 3fr) minmax(0, 6fr)',
+      gap: 12, alignItems: 'stretch', flex: 1, minHeight: 0,
+    }}>
+      <Panel theme={theme} title="activity" subtitle="live · newest first" style={{ minHeight: 0 }}>
+        <div style={{ overflowY: 'auto', minHeight: 0 }}>
+          {events.length === 0 && (
+            <div style={{ fontSize: 12, color: theme.ink3, padding: '6px 2px' }}>nothing yet — quiet as the grave.</div>
+          )}
+          {events.map((e, i) => {
+            const [Icon, tone] = KIND_ICON[e.kind] ?? [Moon, 'ink'];
+            const color = tone === 'neon' ? theme.neon
+              : tone === 'moss' ? theme.pillMossFg
+                : tone === 'oxblood' ? theme.pillOxbloodFg
+                  : theme.ink2;
+            return (
+              <div
+                key={`${e.ts}-${i}`}
+                onClick={() => e.agentId && setSelected(e.agentId)}
+                style={{
+                  display: 'flex', alignItems: 'baseline', gap: 8, padding: '6px 2px',
+                  borderTop: i === 0 ? 'none' : `1px solid ${theme.hairline}`,
+                  fontSize: 12, cursor: e.agentId ? 'pointer' : 'default',
+                }}
+              >
+                <Icon size={12} color={color} style={{ flexShrink: 0, alignSelf: 'center' }} />
+                <span style={{ flex: 1, minWidth: 0, color: theme.ink0, overflowWrap: 'anywhere', lineHeight: 1.4 }}>{e.text}</span>
+                <span style={{ fontFamily: theme.fontMono, fontSize: 10, color: theme.ink3, whiteSpace: 'nowrap' }}>{relTime(e.ts)}</span>
+              </div>
+            );
+          })}
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {[...agents].sort((a, b) => (a.source === 'system' ? -1 : b.source === 'system' ? 1 : 0)).slice(0, 14).map((a) => (
-            <button
-              key={a.id}
-              onClick={() => setSelected(a.id === selected ? null : a.id)}
-              style={{
-                background: a.id === selected ? theme.fog : theme.vellum,
-                border: `1px solid ${theme.hairline}`,
-                borderRadius: 6, padding: '3px 8px', fontSize: 10,
-                color: theme.ink1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: 3, background: a.alive ? theme.moss : theme.ink2, display: 'inline-block' }} />
-              {a.id}
-            </button>
-          ))}
+      </Panel>
+
+      <Panel theme={theme} title="roster" subtitle={`${alive} alive · ${agents.length} total`} style={{ minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', minHeight: 0 }}>
+          {roster.map((a) => {
+            const on = selected === a.id;
+            const dead = !a.alive && a.source !== 'system';
+            const Icon = ROLE_ICON[a.role] ?? ROLE_ICON[a.id] ?? Ghost;
+            const [label, tone] = agentPill(a);
+            return (
+              <button
+                key={`${a.source}-${a.id}`}
+                onClick={() => setSelected(a.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%',
+                  padding: '8px 10px', cursor: 'pointer', borderRadius: theme.rSm,
+                  border: `1px solid ${on ? theme.hairline3 : 'transparent'}`,
+                  background: on ? theme.fog : 'transparent',
+                  opacity: a.source === 'reaped' ? 0.55 : 1,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <Icon size={15} color={dead ? theme.ink3 : on ? theme.neon : theme.ink2} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 12.5, color: theme.ink0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.id}</span>
+                  {a.story && <span style={{ display: 'block', fontFamily: theme.fontMono, fontSize: 10, color: theme.ink2, marginTop: 1 }}>{a.story}</span>}
+                </span>
+                <Pill theme={theme} tone={tone}>{label}</Pill>
+              </button>
+            );
+          })}
+          {roster.length === 0 && <div style={{ fontSize: 12, color: theme.ink3, padding: '6px 2px' }}>no agents yet.</div>}
         </div>
-        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: theme.ink2, marginTop: 6 }}>
-          activity
-        </div>
-        {events.map((e, i) => (
-          <div
-            key={`${e.ts}-${i}`}
-            onClick={() => e.agentId && setSelected(e.agentId)}
-            style={{
-              display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12,
-              padding: '5px 8px', borderRadius: 6,
-              background: e.kind === 'rejected' || e.kind === 'blocked' || e.kind === 'attention' ? theme.vellum : 'transparent',
-              color: theme.ink0, cursor: e.agentId ? 'pointer' : 'default',
-            }}
-          >
-            <span style={{ color: e.kind === 'approved' ? theme.moss : e.kind === 'rejected' || e.kind === 'attention' ? theme.oxblood : theme.ink2 }}>
-              {KIND_GLYPH[e.kind] ?? '·'}
-            </span>
-            <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{e.text}</span>
-            <span style={{ fontSize: 10, color: theme.ink2, whiteSpace: 'nowrap' }}>{relTime(e.ts)}</span>
-          </div>
-        ))}
-        {events.length === 0 && <div style={{ fontSize: 12, color: theme.ink2 }}>nothing yet — quiet as the grave.</div>}
-      </div>
-      {selected && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 11, color: theme.ink1 }}>{selected}</span>
-            <div style={{ flex: 1 }} />
-            <button onClick={() => setSelected(null)} style={{ background: theme.fog, color: theme.ink1, border: 'none', borderRadius: 6, fontSize: 11, padding: '3px 10px', cursor: 'pointer' }}>
-              close
-            </button>
-          </div>
-          <pre
-            ref={preRef}
-            onScroll={(ev) => {
-              const el = ev.currentTarget;
-              atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-            }}
-            style={{
-              flex: 1, minHeight: 0, overflow: 'auto', margin: 0, padding: 10,
-              background: theme.paper, border: `1px solid ${theme.hairline}`, borderRadius: 8,
-              fontSize: 11, lineHeight: 1.45, color: theme.ink1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
-            }}
-          >
-            {logText || '(log is empty)'}
-          </pre>
-        </div>
-      )}
+      </Panel>
+
+      <LogTail theme={theme} api={api} ws={ws} agentId={selected} />
     </div>
   );
 }
+
+// ---- chat --------------------------------------------------------------
 
 function ChatText({ text }) {
   // tiny markdown-lite: paragraphs, `code`, - lists
@@ -235,6 +669,21 @@ function ChatText({ text }) {
 }
 
 const STARTERS = ["what's happening right now?", 'why was the last story rejected?', 'what needs me?'];
+
+function GhostAvatar({ theme, floating }) {
+  return (
+    <span
+      className={floating ? 'seance-float' : undefined}
+      style={{
+        flexShrink: 0, width: 30, height: 30, borderRadius: '50%',
+        background: theme.fog, border: `1px solid ${theme.hairline}`,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <Ghost size={15} color={theme.ink1} />
+    </span>
+  );
+}
 
 function Chat({ api, ws, theme }) {
   const [messages, setMessages] = useState([]);
@@ -277,39 +726,30 @@ function Chat({ api, ws, theme }) {
     }
   };
 
-  const bubbleStyle = (role) => ({
-    alignSelf: role === 'user' ? 'flex-end' : 'flex-start',
-    maxWidth: '80%',
-    whiteSpace: 'pre-wrap',
-    background: role === 'user' ? theme.vellum : 'transparent',
-    border: role === 'user' ? `1px solid ${theme.hairline}` : role === 'error' ? `1px solid ${theme.oxblood}` : 'none',
-    color: role === 'error' ? theme.oxblood : theme.ink0,
-    borderRadius: 10,
-    padding: role === 'user' ? '10px 14px' : '2px 2px',
-    fontSize: 13.5,
-    lineHeight: 1.5,
-  });
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, maxWidth: 760, width: '100%', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: 6 }}>
         <button
           onClick={() => void api.ipc.invoke('chat:reset', ws).then(() => setMessages([]))}
           disabled={pending}
           title="forget this conversation"
-          style={{ background: 'transparent', border: 'none', color: theme.ink2, fontSize: 11, cursor: pending ? 'default' : 'pointer', padding: '2px 4px' }}
+          style={{ background: 'transparent', border: 'none', color: theme.ink2, fontSize: 11, cursor: pending ? 'default' : 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
         >
           + new séance
         </button>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, padding: '4px 2px' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 15, padding: '4px 2px' }}>
         {messages.length === 0 && !pending && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', marginTop: 48 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center', marginTop: 48 }}>
+            <GhostAvatar theme={theme} floating />
             <div style={{ fontSize: 13, color: theme.ink2 }}>ask the séance anything about this workspace</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
               {STARTERS.map((s) => (
-                <button key={s} onClick={() => void sendMessage(s)} style={{ background: theme.vellum, border: `1px solid ${theme.hairline}`, color: theme.ink1, borderRadius: 14, fontSize: 11.5, padding: '5px 12px', cursor: 'pointer' }}>
+                <button key={s} onClick={() => void sendMessage(s)} className="seance-chip" style={{
+                  background: 'transparent', border: `1px solid ${theme.hairline2}`, color: theme.ink1,
+                  borderRadius: theme.rPill, fontSize: 12, padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit',
+                }}>
                   {s}
                 </button>
               ))}
@@ -317,13 +757,29 @@ function Chat({ api, ws, theme }) {
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} style={bubbleStyle(m.role)}>
-            <ChatText text={m.text} />
+          <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', gap: 10 }}>
+            {m.role !== 'user' && <GhostAvatar theme={theme} />}
+            <div style={{
+              maxWidth: '78%', whiteSpace: 'pre-wrap',
+              background: m.role === 'user' ? theme.vellum : 'transparent',
+              border: m.role === 'user' ? `1px solid ${theme.hairline2}` : m.role === 'error' ? `1px solid ${theme.oxblood}` : 'none',
+              color: m.role === 'error' ? theme.pillOxbloodFg : m.role === 'user' ? theme.ink0 : theme.ink1,
+              borderRadius: m.role === 'user' ? '12px 12px 3px 12px' : 8,
+              padding: m.role === 'user' ? '9px 13px' : m.role === 'error' ? '9px 13px' : '3px 0',
+              fontSize: 13.5, lineHeight: 1.55,
+            }}>
+              <ChatText text={m.text} />
+            </div>
           </div>
         ))}
         {pending && (
-          <div style={{ ...bubbleStyle('assistant'), color: theme.ink2, fontStyle: 'italic' }}>
-            consulting the spirits…
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <GhostAvatar theme={theme} floating />
+            <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', padding: '4px 0' }}>
+              {[0, 1, 2].map((n) => (
+                <span key={n} className="seance-typing" style={{ animationDelay: `${n * 160}ms`, width: 6, height: 6, borderRadius: '50%', background: theme.ink3, display: 'inline-block' }} />
+              ))}
+            </span>
           </div>
         )}
         <div ref={endRef} />
@@ -333,10 +789,11 @@ function Chat({ api, ws, theme }) {
       <div
         style={{
           display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 10,
-          background: theme.vellum, border: `1px solid ${focused ? theme.ink2 : theme.hairline}`,
-          borderRadius: 10, padding: '6px 6px 6px 14px', transition: 'border-color 120ms',
+          background: theme.paper, border: `1px solid ${focused ? theme.hairline3 : theme.hairline2}`,
+          borderRadius: theme.rMd, padding: '6px 6px 6px 13px', transition: 'border-color 120ms',
         }}
       >
+        <MessageSquare size={15} color={theme.ink3} style={{ flexShrink: 0, marginBottom: 9 }} />
         <textarea
           ref={taRef}
           rows={1}
@@ -363,14 +820,41 @@ function Chat({ api, ws, theme }) {
           disabled={pending || !draft.trim()}
           onClick={() => void sendMessage(draft)}
           style={{
-            width: 32, height: 32, flexShrink: 0, marginBottom: 1, borderRadius: 6, border: 'none',
-            background: theme.neon, color: '#0E0F12', fontSize: 15, lineHeight: 1, fontWeight: 700,
+            width: 30, height: 30, flexShrink: 0, marginBottom: 2, borderRadius: theme.rSm, border: 'none',
+            background: draft.trim() && !pending ? theme.neon : theme.fog,
+            color: draft.trim() && !pending ? '#0E0F12' : theme.ink3,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             cursor: pending || !draft.trim() ? 'not-allowed' : 'pointer',
-            opacity: pending || !draft.trim() ? 0.4 : 1,
           }}
         >
-          ↑
+          <ArrowUp size={15} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- shell -------------------------------------------------------------
+
+const TABS = [
+  { id: 'board', label: 'board', Icon: LayoutGrid },
+  { id: 'hood', label: 'under the hood', Icon: Cpu },
+  { id: 'chat', label: 'chat', Icon: MessageSquare },
+];
+
+function NoWorkspace({ theme }) {
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40 }}>
+      <Ghost size={48} color={theme.ink2} className="seance-float" />
+      <div style={{ textAlign: 'center', maxWidth: 400 }}>
+        <div style={{ fontFamily: theme.fontDisplay, fontWeight: 600, fontSize: 20, letterSpacing: '-0.02em', color: theme.ink0, marginBottom: 6 }}>
+          no séance in progress
+        </div>
+        <p style={{ fontSize: 13, color: theme.ink2, lineHeight: 1.5, margin: 0 }}>
+          the séance binds to a workspace, opens a worktree per agent, and works the backlog until you call it back.
+          create one under <code style={{ fontFamily: theme.fontMono, fontSize: 12 }}>~/seance/&lt;name&gt;</code> with a{' '}
+          <code style={{ fontFamily: theme.fontMono, fontSize: 12 }}>config.yaml</code> (see the séance README), then reopen this screen.
+        </p>
       </div>
     </div>
   );
@@ -378,7 +862,7 @@ function Chat({ api, ws, theme }) {
 
 function App({ api }) {
   const theme = useTheme(api);
-  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaces, setWorkspaces] = useState(null); // null = loading
   const [ws, setWs] = useState(null);
   const [snap, setSnap] = useState(null);
   const [error, setError] = useState(null);
@@ -402,8 +886,11 @@ function App({ api }) {
     api.ipc.invoke('workspaces:list').then((list) => {
       if (!alive) return;
       setWorkspaces(list);
-      if (list.length && !ws) setWs(list[0].path);
-    }).catch((e) => setError(String(e?.message ?? e)));
+      if (list.length) setWs((cur) => cur ?? list[0].path);
+    }).catch((e) => {
+      setWorkspaces([]);
+      setError(String(e?.message ?? e));
+    });
     return () => { alive = false; };
   }, [api]);
 
@@ -435,165 +922,122 @@ function App({ api }) {
   const hb = snap?.heartbeat ?? { running: false };
   const tickAge = snap?.lastTickTs ? (Date.now() - Date.parse(snap.lastTickTs)) / 1000 : Infinity;
   const pendingWork = (snap?.backlogCounts?.pending ?? 0) + (snap?.backlogCounts?.building ?? 0) + (snap?.backlogCounts?.verifying ?? 0);
-  const health = hb.running
-    ? tickAge < 900 || pendingWork === 0 ? theme.moss : theme.oxblood
-    : theme.ink2;
+  const healthy = hb.running && (tickAge < 900 || pendingWork === 0);
 
-  const input = {
-    background: theme.paper,
-    border: `1px solid ${theme.hairline}`,
-    borderRadius: 6,
-    color: theme.ink0,
-    fontSize: 12,
-    padding: '6px 8px',
-    outline: 'none',
-  };
-  const btn = (bg, fg) => ({
-    background: bg,
-    color: fg,
-    border: 'none',
-    borderRadius: 6,
-    fontSize: 12,
-    fontWeight: 600,
-    padding: '7px 12px',
-    cursor: 'pointer',
-  });
+  const noWorkspace = workspaces !== null && workspaces.length === 0;
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, color: theme.ink0, fontFamily: 'inherit', height: '100%', boxSizing: 'border-box' }}>
+    <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 0, color: theme.ink0, fontFamily: 'inherit', height: '100%', boxSizing: 'border-box' }}>
       {/* header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 16, fontWeight: 600 }}>séance</span>
-        <select value={ws ?? ''} onChange={(e) => { setSnap(null); setWs(e.target.value); }} style={{ ...input, minWidth: 160 }}>
-          {workspaces.map((w) => <option key={w.path} value={w.path}>{w.name}</option>)}
-        </select>
-        <span style={{ width: 8, height: 8, borderRadius: 4, background: health, display: 'inline-block' }} />
-        <span style={{ fontSize: 11, color: theme.ink2 }}>
-          {hb.running ? `heartbeat running · tick ${relTime(snap?.lastTickTs)}` : `heartbeat stopped · last tick ${relTime(snap?.lastTickTs)}`}
-        </span>
-        <div style={{ flex: 1 }} />
-        <button
-          style={btn(hb.running ? theme.fog : theme.neon, hb.running ? theme.ink0 : '#0E0F12')}
-          onClick={() => act(() => api.ipc.invoke(hb.running ? 'heartbeat:stop' : 'heartbeat:start', ws))}
-        >
-          {hb.running ? 'stop heartbeat' : 'start heartbeat'}
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 14 }}>
+        <span style={{ fontFamily: theme.fontDisplay, fontSize: 17, fontWeight: 600, letterSpacing: '-0.02em' }}>séance</span>
+        {!noWorkspace && workspaces !== null && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            background: theme.vellum, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rMd,
+            padding: '5px 8px 5px 11px',
+          }}>
+            <GitBranch size={13} color={theme.neon} />
+            <select
+              value={ws ?? ''}
+              onChange={(e) => { setSnap(null); setWs(e.target.value); }}
+              style={{
+                background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer',
+                color: theme.ink0, fontFamily: theme.fontMono, fontSize: 12, maxWidth: 220,
+              }}
+            >
+              {workspaces.map((w) => <option key={w.path} value={w.path}>{w.name}</option>)}
+            </select>
+          </span>
+        )}
+        {!noWorkspace && snap && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: theme.fontMono, fontSize: 11, color: healthy ? theme.ink2 : theme.pillOxbloodFg }}>
+            <span
+              className={healthy ? 'seance-pulse' : undefined}
+              style={{ width: 7, height: 7, borderRadius: '50%', background: healthy ? theme.neon : hb.running ? theme.oxblood : theme.ink3, display: 'inline-block' }}
+            />
+            {hb.running ? `tick ${relTime(snap?.lastTickTs)}` : `heartbeat stopped · last tick ${relTime(snap?.lastTickTs)}`}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {!noWorkspace && snap && hb.running && (
+          <Btn theme={theme} variant="ghost" icon={<Square size={12} />} onClick={() => act(() => api.ipc.invoke('heartbeat:stop', ws))}>
+            stop heartbeat
+          </Btn>
+        )}
       </div>
 
-      {/* tabs */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${theme.hairline}` }}>
-        {[['board', 'board'], ['hood', 'under the hood'], ['chat', 'chat']].map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            style={{
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              padding: '6px 14px', fontSize: 12, fontWeight: tab === key ? 600 : 400,
-              color: tab === key ? theme.ink0 : theme.ink2,
-              borderBottom: `2px solid ${tab === key ? theme.neon : 'transparent'}`,
-              marginBottom: -1,
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {error && <Card theme={theme} tone="alert">{error}</Card>}
-      {notice && tab === 'board' && <Card theme={theme} tone="alert">{notice}</Card>}
-
-      {tab === 'hood' && ws && <UnderTheHood api={api} ws={ws} theme={theme} input={input} />}
-      {tab === 'chat' && ws && <Chat api={api} ws={ws} theme={theme} />}
-
-      {tab !== 'board' ? null : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', minHeight: 0 }}>
-      {/* attention strip */}
-      {snap?.attention?.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: theme.oxblood }}>
-            needs you ({snap.attention.length})
-          </div>
-          {snap.attention.map((a) => (
-            <Card key={a.name} theme={theme} tone="alert">
-              <strong>{a.name}</strong>
-              <div style={{ whiteSpace: 'pre-wrap', color: theme.ink1, marginTop: 4, maxHeight: 120, overflow: 'auto' }}>{a.body}</div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {/* board */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-        {COLUMNS.map((col) => {
-          const stories = (snap?.stories ?? []).filter((s) => col.statuses.includes(s.status));
-          return (
-            <div key={col.key} style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
-              <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, color: theme.ink2 }}>
-                {col.label} {stories.length > 0 && `· ${stories.length}`}
-              </div>
-              {stories.map((s) => (
-                <Card key={s.id} theme={theme} tone={col.key === 'blocked' ? 'alert' : undefined}>
-                  <div style={{ fontFamily: 'monospace', fontSize: 10, color: theme.ink2 }}>{s.id}</div>
-                  <div style={{ margin: '3px 0', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>{s.title || '(untitled)'}</div>
-                  <div style={{ display: 'flex', gap: 6, fontSize: 10, color: theme.ink2 }}>
-                    <span>{s.repo}</span>
-                    {s.attempts > 1 && <span style={{ color: theme.oxblood }}>attempt {s.attempts}</span>}
-                  </div>
-                </Card>
-              ))}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* summon */}
-      <div style={{ border: `1px solid ${theme.hairline}`, borderRadius: 10, background: theme.vellum, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>summon</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={{ ...input, width: 140 }} placeholder="REQ-42" value={form.id}
-            onChange={(e) => setForm({ ...form, id: e.target.value.toUpperCase() })} />
-          <input style={{ ...input, flex: 1 }} placeholder="title" value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <select style={input} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
-            <option value="low">low</option>
-            <option value="normal">normal</option>
-            <option value="high">high</option>
-          </select>
-        </div>
-        <textarea style={{ ...input, minHeight: 90, resize: 'vertical', fontFamily: 'inherit' }}
-          placeholder="describe what you want and why — acceptance criteria, not implementation steps"
-          value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
-            style={btn(theme.neon, '#0E0F12')}
-            disabled={!ws}
-            onClick={() => act(async () => {
-              await api.ipc.invoke('summon', ws, form);
-              setForm({ id: '', title: '', priority: 'normal', body: '' });
+      {noWorkspace ? (
+        <NoWorkspace theme={theme} />
+      ) : (
+        <>
+          {/* tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, borderBottom: `1px solid ${theme.hairline}`, marginBottom: 14 }}>
+            {TABS.map(({ id, label, Icon }) => {
+              const on = tab === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setTab(id)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+                    border: 'none', background: 'transparent', padding: '9px 13px',
+                    color: on ? theme.ink0 : theme.ink2,
+                    fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 600 : 500,
+                    borderBottom: `2px solid ${on ? theme.neon : 'transparent'}`,
+                    marginBottom: -1,
+                  }}
+                >
+                  <Icon size={14} color={on ? theme.neon : 'currentColor'} />
+                  {label}
+                </button>
+              );
             })}
-          >
-            summon the spirits
-          </button>
-          <div style={{ flex: 1 }} />
-          <input style={{ ...input, flex: 1 }} placeholder='steer: "pause repo x", "REQ-41 first"…'
-            value={steerText} onChange={(e) => setSteerText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && steerText.trim()) {
-                void act(async () => {
-                  await api.ipc.invoke('steer', ws, steerText);
-                  setSteerText('');
-                });
-              }
-            }} />
-        </div>
-      </div>
-        </div>
+          </div>
+
+          {(error || (notice && tab === 'board')) && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12,
+              background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`,
+              borderRadius: theme.rMd, padding: '9px 13px', fontSize: 12.5, color: theme.pillOxbloodFg,
+            }}>
+              <AlertTriangle size={14} color={theme.oxblood} style={{ flexShrink: 0 }} />
+              <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{error ?? notice}</span>
+            </div>
+          )}
+
+          {tab === 'board' && ws && (
+            <Board
+              theme={theme} snap={snap} hb={hb} ws={ws} act={act} api={api}
+              form={form} setForm={setForm} steerText={steerText} setSteerText={setSteerText}
+            />
+          )}
+          {tab === 'hood' && ws && <UnderTheHood theme={theme} api={api} ws={ws} />}
+          {tab === 'chat' && ws && <Chat api={api} ws={ws} theme={theme} />}
+        </>
       )}
     </div>
   );
 }
 
+const KEYFRAMES = `
+@keyframes seance-pulse-kf { 0%,100%{ box-shadow:0 0 0 0 rgba(197,255,61,0.5);} 50%{ box-shadow:0 0 0 4px rgba(197,255,61,0);} }
+.seance-pulse { animation: seance-pulse-kf 2.4s cubic-bezier(.4,0,.2,1) infinite; }
+@keyframes seance-blink { 0%,100%{opacity:1;} 50%{opacity:0.15;} }
+.seance-dot { animation: seance-blink 1.6s ease-in-out infinite; display:inline-block; }
+@keyframes seance-typing-kf { 0%,60%,100%{ transform:translateY(0); opacity:.4;} 30%{ transform:translateY(-4px); opacity:1;} }
+.seance-typing { animation: seance-typing-kf 1.1s ease-in-out infinite; }
+@keyframes seance-float-kf { 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-3px);} }
+.seance-float { animation: seance-float-kf 3s ease-in-out infinite; }
+`;
+
 export function mount(el, api) {
+  if (!document.getElementById('seance-plugin-kf')) {
+    const style = document.createElement('style');
+    style.id = 'seance-plugin-kf';
+    style.textContent = KEYFRAMES;
+    document.head.appendChild(style);
+  }
   const root = createRoot(el);
   root.render(<App api={api} />);
   return () => root.unmount();
