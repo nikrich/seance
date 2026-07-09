@@ -16,7 +16,7 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 
 ## State you work with
 
-- Requirement (`state/requirements/<id>.md`) frontmatter: `id, title, status: inbox|planning|planned|done, priority: low|normal|high`, optional `paused: true`, optional `blocked_reason`.
+- Requirement (`state/requirements/<id>.md`) frontmatter: `id, title, status: inbox|speccing|spec_review|planning|planned|done, priority: low|normal|high`, optional `paused: true`, optional `blocked_reason`.
 - Story (`state/stories/<id>.md`) frontmatter: `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked, deps: [], oracle, branch, attempts, model_hint`.
 - Agent registry (`state/agents/<agent-id>.md`) frontmatter: `id, role: planner|builder|critic, pid, story, requirement, started_at (ISO8601 UTC), model`.
 - Question (`questions/*.md`) frontmatter: `id, story, requirement, status, asked_at` — written by planners/builders/critics per "The knowledge chain", resolved by the human in Poltergeist.
@@ -42,7 +42,7 @@ If `config.yaml` is missing: write `attention/no-config.md` ("workspace has no c
 
 For each `inbox/*.md` (skip directories):
 
-- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: inbox` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead.
+- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: speccing` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead.
 - **No `id:` frontmatter** → it's a steering note. Apply it now:
   - "pause repo X" / "resume repo X" → add/remove X in `paused_repos` in `config.yaml`.
   - "priority <req-id> ..." / "<req-id> first" → set that requirement's `priority: high`.
@@ -89,11 +89,19 @@ A story referenced by any `status: open` question is NOT eligible to spawn
 
 ### 5. Spawn planner
 
-If live planners < `max_planner` AND some requirement has `status: inbox` (and no `blocked_reason`): pick the highest priority (high > normal > low, then oldest), set it `planning`, spawn:
+If live planners < `max_planner`, spawn for the highest-priority eligible
+requirement, choosing the prompt by status:
+
+- `status: speccing` (and no `blocked_reason`) → prompt
+  `"Invoke the seance-planner skill to DRAFT THE SPEC for requirement <id>."`
+- `status: planning` (spec approved by the human) → prompt
+  `"Invoke the seance-planner skill to DECOMPOSE requirement <id> per its approved spec."`
+
+`spec_review` requirements are waiting on the human — never spawn for them.
 
 ```bash
 AGENT_ID="planner-<req-id>-$RANDOM"
-nohup claude -p "Invoke the seance-planner skill for requirement <req-id>." \
+nohup claude -p "<the DRAFT THE SPEC or DECOMPOSE prompt above, for <req-id>>" \
   --dangerously-skip-permissions --model <models.planner> \
   > "logs/$AGENT_ID.log" 2>&1 &
 PID=$!

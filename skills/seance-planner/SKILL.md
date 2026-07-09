@@ -53,6 +53,30 @@ and never invent an answer to an escalation-worthy question.
 - `config.yaml`: `repos.<name>.{default_branch,test_command}` — the repos you may target.
 - The repos themselves: `repos/<name>/`. **Read before you plan**: project layout, conventions, how existing similar features are built, how tests are written and run. Plan stories that fit the codebase as it actually is.
 
+## Phase A — draft the spec (when invoked to DRAFT THE SPEC)
+
+1. Research before writing: read the requirement body, the relevant code,
+   and run the knowledge chain (vault first) for product intent and prior
+   decisions. Check `state/requirements/` for non-done requirements that
+   substantially overlap this one — overlap goes in the spec's
+   `### Conflicts` section, not into duplicate planning.
+2. Write a `## Spec` section into `state/requirements/<id>.md`:
+   `### Goal` (2-3 sentences), `### Scope` (in / out bullets),
+   `### Acceptance criteria` (testable bullets), `### UI placement` (when
+   UI is involved), `### Open questions` (anything the knowledge chain
+   could not answer — these are for the human at review time),
+   `### Conflicts` (overlapping requirements, if any).
+   If the file has `## Spec feedback (<ts>)` blocks, treat the newest as
+   review notes on your previous draft and address them.
+3. Set requirement `status: spec_review`. Exit — the human approves or
+   requests changes in Poltergeist.
+
+## Phase B — decompose (when invoked to DECOMPOSE)
+
+Decompose from the approved `## Spec` — it supersedes the raw requirement
+body wherever they differ. Everything below (stories, oracles, deps) is
+unchanged.
+
 ## Story file format
 
 Write each story to `state/stories/<req-id>-s<N>.md` (N = 1, 2, …):
