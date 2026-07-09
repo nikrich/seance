@@ -21,7 +21,7 @@ const {
 } = require('node:fs');
 const { homedir } = require('node:os');
 const { join, resolve } = require('node:path');
-const { readWorkspaceStatus, pidAlive } = require('./lib/state-files.cjs');
+const { readWorkspaceStatus, pidAlive, dismissAttention } = require('./lib/state-files.cjs');
 const { parseFrontmatter } = require('./lib/state-files.cjs');
 const { buildActivity } = require('./lib/activity.cjs');
 const { createChat } = require('./lib/chat.cjs');
@@ -119,6 +119,12 @@ function activate(ctx) {
     );
     wakeHeartbeat(ctx, ws);
     return { ok: true, file: inboxFile };
+  });
+
+  ctx.ipc.handle('attention:dismiss', (wsPath, name) => {
+    const ws = assertWorkspace(wsPath);
+    dismissAttention(ws, name);
+    return { ok: true };
   });
 
   ctx.ipc.handle('steer', (wsPath, text) => {

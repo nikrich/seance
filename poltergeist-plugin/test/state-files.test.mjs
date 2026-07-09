@@ -1,12 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { parseFrontmatter, readWorkspaceStatus } = require('../src/lib/state-files.cjs');
+const { parseFrontmatter, readWorkspaceStatus, dismissAttention } = require('../src/lib/state-files.cjs');
+
+test('dismissAttention: moves the item out of attention/, keeps an audit copy', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'attention'), { recursive: true });
+  writeFileSync(join(ws, 'attention', 'note.md'), 'needs a human');
+
+  dismissAttention(ws, 'note.md');
+  assert.equal(readWorkspaceStatus(ws).attention.length, 0);
+  assert.ok(existsSync(join(ws, 'attention', '.dismissed', 'note.md')));
+
+  // rejects traversal and unknown names
+  assert.throws(() => dismissAttention(ws, '../config.yaml'), /invalid attention item/);
+  assert.throws(() => dismissAttention(ws, 'nope.md'), /not found/);
+});
 
 test('parseFrontmatter: scalars, arrays, quoted strings, body', () => {
   const md = `---
