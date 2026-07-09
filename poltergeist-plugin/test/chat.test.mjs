@@ -83,6 +83,49 @@ test('rejects a concurrent send for the same workspace', async () => {
   assert.equal((await first).answer, 'done');
 });
 
+const STDIN_WARNING =
+  'Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.';
+
+test('a timed-out run reports a timeout, not stray stderr noise', async () => {
+  const chat = createChat({
+    dataDir: mkdtempSync(join(tmpdir(), 'seance-chat-')),
+    runClaude: async () => ({ code: 1, stdout: '', stderr: STDIN_WARNING, killed: true }),
+  });
+  await assert.rejects(() => chat.send(WS, 'hello', 'sonnet'), /timed out/);
+});
+
+test('failure with only the stdin warning on stderr falls back to stdout', async () => {
+  const chat = createChat({
+    dataDir: mkdtempSync(join(tmpdir(), 'seance-chat-')),
+    runClaude: async () => ({
+      code: 1,
+      stdout: 'Error: real failure detail printed to stdout',
+      stderr: `${STDIN_WARNING}\n`,
+      killed: false,
+    }),
+  });
+  await assert.rejects(
+    () => chat.send(WS, 'hello', 'sonnet'),
+    (e) => e.message.includes('real failure detail') && !e.message.includes('no stdin data'),
+  );
+});
+
+test('real stderr wins over stdout on failure, with the stdin warning stripped', async () => {
+  const chat = createChat({
+    dataDir: mkdtempSync(join(tmpdir(), 'seance-chat-')),
+    runClaude: async () => ({
+      code: 1,
+      stdout: 'irrelevant',
+      stderr: `${STDIN_WARNING}\nError: vault index corrupted`,
+      killed: false,
+    }),
+  });
+  await assert.rejects(
+    () => chat.send(WS, 'hi', 'sonnet'),
+    (e) => e.message.includes('vault index corrupted') && !e.message.includes('no stdin data'),
+  );
+});
+
 test('sessions persist across instances via dataDir', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'seance-chat-'));
   const calls = [];

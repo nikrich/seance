@@ -69,7 +69,21 @@ test('readWorkspaceStatus assembles a full snapshot', () => {
     '{"ts":"2026-07-06T10:00:00Z"}\n{"ts":"2026-07-06T10:01:00Z"}\n',
   );
 
+  // pending inbox: a summoned requirement, a steering note, and processed/ to ignore
+  mkdirSync(join(ws, 'inbox/processed'), { recursive: true });
+  writeFileSync(
+    join(ws, 'inbox/REQ-2.md'),
+    '---\nid: REQ-2\ntitle: Do the thing\npriority: high\n---\n\nbody',
+  );
+  writeFileSync(join(ws, 'inbox/steer-123.md'), 'REQ-41 first\n');
+  writeFileSync(join(ws, 'inbox/processed/REQ-0.md'), 'already consumed');
+
   const snap = readWorkspaceStatus(ws);
+  assert.equal(snap.inbox.length, 2);
+  const req = snap.inbox.find((i) => i.id === 'REQ-2');
+  assert.equal(req.title, 'Do the thing');
+  const note = snap.inbox.find((i) => i.file === 'steer-123.md');
+  assert.equal(note.id, null);
   assert.equal(snap.requirements.length, 1);
   assert.equal(snap.requirements[0].title, 'Add sum');
   assert.equal(snap.stories.length, 1);

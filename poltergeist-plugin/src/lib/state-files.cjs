@@ -119,7 +119,25 @@ function readWorkspaceStatus(wsPath) {
   const backlogCounts = {};
   for (const s of stories) backlogCounts[s.status] = (backlogCounts[s.status] ?? 0) + 1;
 
-  return { requirements, stories, agents, attention, lastTickTs: lastTickTs(wsPath), backlogCounts };
+  // pending inbox items (summoned requirements + steering notes) — files the
+  // manager hasn't drained yet; processed/ is a subdirectory, excluded by the
+  // .md filter on directory entries
+  const inboxDir = join(wsPath, 'inbox');
+  const inbox = !existsSync(inboxDir)
+    ? []
+    : readdirSync(inboxDir)
+        .filter((f) => f.endsWith('.md'))
+        .sort()
+        .map((f) => {
+          const { attrs } = parseFrontmatter(readFileSync(join(inboxDir, f), 'utf-8'));
+          return {
+            file: f,
+            id: attrs.id == null ? null : String(attrs.id),
+            title: String(attrs.title ?? ''),
+          };
+        });
+
+  return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts };
 }
 
 module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive };

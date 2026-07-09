@@ -105,7 +105,16 @@ var require_state_files = __commonJS({
       const attention = !existsSync2(attentionDir) ? [] : readdirSync2(attentionDir).filter((f) => !f.startsWith(".")).map((f) => ({ name: f, body: readFileSync2(join2(attentionDir, f), "utf-8") }));
       const backlogCounts = {};
       for (const s of stories) backlogCounts[s.status] = (backlogCounts[s.status] ?? 0) + 1;
-      return { requirements, stories, agents, attention, lastTickTs: lastTickTs(wsPath), backlogCounts };
+      const inboxDir = join2(wsPath, "inbox");
+      const inbox = !existsSync2(inboxDir) ? [] : readdirSync2(inboxDir).filter((f) => f.endsWith(".md")).sort().map((f) => {
+        const { attrs } = parseFrontmatter2(readFileSync2(join2(inboxDir, f), "utf-8"));
+        return {
+          file: f,
+          id: attrs.id == null ? null : String(attrs.id),
+          title: String(attrs.title ?? "")
+        };
+      });
+      return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts };
     }
     module2.exports = { parseFrontmatter: parseFrontmatter2, readWorkspaceStatus: readWorkspaceStatus2, pidAlive: pidAlive2 };
   }
@@ -229,6 +238,7 @@ var require_chat = __commonJS({
     var { existsSync: existsSync2, mkdirSync: mkdirSync2, readFileSync: readFileSync2, writeFileSync: writeFileSync2 } = require("node:fs");
     var { basename, join: join2 } = require("node:path");
     var PREAMBLE = "Invoke the seance-concierge skill. You are being used as a chat interface inside Poltergeist. ";
+    var CHAT_TIMEOUT_MS = 3e5;
     function slugFor(wsPath) {
       return basename(wsPath).toLowerCase().replace(/[^a-z0-9-]/g, "-");
     }
@@ -279,9 +289,15 @@ var require_chat = __commonJS({
             model
           ];
           if (sessionId) args.push("--resume", sessionId);
-          const { code, stdout, stderr } = await runClaude(args, ws, 12e4);
+          const { code, stdout, stderr, killed } = await runClaude(args, ws, CHAT_TIMEOUT_MS);
+          if (killed) {
+            throw new Error(
+              `s\xE9ance chat timed out after ${Math.round(CHAT_TIMEOUT_MS / 1e3)}s \u2014 try again, or ask something smaller`
+            );
+          }
           if (code !== 0) {
-            throw new Error(`s\xE9ance chat failed: ${(stderr || "no output").slice(-300)}`);
+            const detail = (stderr ?? "").replace(/Warning: no stdin data received[^\n]*\n?/g, "").trim() || (stdout ?? "").trim() || "no output";
+            throw new Error(`s\xE9ance chat failed: ${detail.slice(-300)}`);
           }
           let parsed;
           try {
@@ -7862,6 +7878,12 @@ function heartbeatStatus(ctx, ws) {
   const running = pid != null && pidAlive(pid);
   return { running, pid: running ? pid : null };
 }
+function wakeHeartbeat(ctx, ws) {
+  const { running, pid } = heartbeatStatus(ctx, ws);
+  if (!running) return;
+  execFile("pkill", ["-P", String(pid), "-x", "sleep"], () => {
+  });
+}
 function activate(ctx) {
   ctxRef = ctx;
   ctx.ipc.handle("workspaces:list", () => {
@@ -7900,6 +7922,7 @@ priority: ${prio}
 ${body.trim()}
 `
     );
+    wakeHeartbeat(ctx, ws);
     return { ok: true, file: inboxFile };
   });
   ctx.ipc.handle("steer", (wsPath, text) => {
@@ -7908,6 +7931,7 @@ ${body.trim()}
     mkdirSync(join(ws, "inbox"), { recursive: true });
     const file = join(ws, "inbox", `steer-${Date.now()}.md`);
     writeFileSync(file, text.trim() + "\n");
+    wakeHeartbeat(ctx, ws);
     return { ok: true, file };
   });
   ctx.ipc.handle("heartbeat:start", (wsPath) => {
@@ -7962,7 +7986,7 @@ ${body.trim()}
       timer = setTimeout(() => ctx.ipc.send("changed", { wsPath: ws }), 500);
     };
     const handles = [];
-    for (const sub of ["state", "attention", "journal"]) {
+    for (const sub of ["inbox", "state", "attention", "journal"]) {
       const dir = join(ws, sub);
       if (!existsSync(dir)) continue;
       try {
@@ -8037,7 +8061,7 @@ ${body.trim()}
   const chatApi = createChat({
     dataDir: ctx.dataDir,
     runClaude: (args, cwd, timeoutMs) => new Promise((resolveRun) => {
-      execFile(
+      const child = execFile(
         "claude",
         args,
         { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, env: withClaudePath() },
@@ -8045,10 +8069,12 @@ ${body.trim()}
           resolveRun({
             code: err ? typeof err.code === "number" ? err.code : 1 : 0,
             stdout: stdout ?? "",
-            stderr: (stderr ?? "") + (err && !stderr ? ` ${err.message}` : "")
+            stderr: (stderr ?? "") + (err && !stderr ? ` ${err.message}` : ""),
+            killed: Boolean(err && (err.killed || err.signal))
           });
         }
       );
+      child.stdin?.end();
     })
   });
   ctx.ipc.handle("chat:send", async (wsPath, text) => {
@@ -8063,7 +8089,7 @@ ${body.trim()}
     return { ok: true };
   });
   const runGit = (args) => new Promise((resolveRun) => {
-    execFile(
+    const child = execFile(
       "git",
       args,
       { env: withClaudePath(), timeout: 10 * 60 * 1e3, maxBuffer: 10 * 1024 * 1024 },
@@ -8075,6 +8101,7 @@ ${body.trim()}
         });
       }
     );
+    child.stdin?.end();
   });
   ctx.ipc.handle("workspace:create", async (name, model) => {
     const errors = validateConfigModel(model);

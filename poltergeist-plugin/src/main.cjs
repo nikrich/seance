@@ -71,6 +71,16 @@ function heartbeatStatus(ctx, ws) {
   return { running, pid: running ? pid : null };
 }
 
+// The heartbeat loop spends nearly all its time in `sleep` (up to sleep.idle
+// seconds). Killing that child advances the loop straight to the next manager
+// tick, so freshly summoned work is picked up in seconds instead of minutes.
+// Best-effort: no heartbeat, or no sleeping child, is fine.
+function wakeHeartbeat(ctx, ws) {
+  const { running, pid } = heartbeatStatus(ctx, ws);
+  if (!running) return;
+  execFile('pkill', ['-P', String(pid), '-x', 'sleep'], () => {});
+}
+
 function activate(ctx) {
   ctxRef = ctx;
 
@@ -107,6 +117,7 @@ function activate(ctx) {
       inboxFile,
       `---\nid: ${id}\ntitle: ${title.trim()}\npriority: ${prio}\n---\n\n${body.trim()}\n`,
     );
+    wakeHeartbeat(ctx, ws);
     return { ok: true, file: inboxFile };
   });
 
@@ -116,6 +127,7 @@ function activate(ctx) {
     mkdirSync(join(ws, 'inbox'), { recursive: true });
     const file = join(ws, 'inbox', `steer-${Date.now()}.md`);
     writeFileSync(file, text.trim() + '\n');
+    wakeHeartbeat(ctx, ws);
     return { ok: true, file };
   });
 
@@ -177,7 +189,7 @@ function activate(ctx) {
       timer = setTimeout(() => ctx.ipc.send('changed', { wsPath: ws }), 500);
     };
     const handles = [];
-    for (const sub of ['state', 'attention', 'journal']) {
+    for (const sub of ['inbox', 'state', 'attention', 'journal']) {
       const dir = join(ws, sub);
       if (!existsSync(dir)) continue;
       try {
@@ -264,7 +276,7 @@ function activate(ctx) {
     dataDir: ctx.dataDir,
     runClaude: (args, cwd, timeoutMs) =>
       new Promise((resolveRun) => {
-        execFile(
+        const child = execFile(
           'claude',
           args,
           { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, env: withClaudePath() },
@@ -273,9 +285,12 @@ function activate(ctx) {
               code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
               stdout: stdout ?? '',
               stderr: (stderr ?? '') + (err && !stderr ? ` ${err.message}` : ''),
+              killed: Boolean(err && (err.killed || err.signal)),
             });
           },
         );
+        // an open stdin pipe makes the CLI wait 3s and print a warning
+        child.stdin?.end();
       }),
   });
 
@@ -295,7 +310,7 @@ function activate(ctx) {
 
   const runGit = (args) =>
     new Promise((resolveRun) => {
-      execFile(
+      const child = execFile(
         'git',
         args,
         { env: withClaudePath(), timeout: 10 * 60 * 1000, maxBuffer: 10 * 1024 * 1024 },
@@ -307,6 +322,8 @@ function activate(ctx) {
           });
         },
       );
+      // closed stdin makes a credential prompt fail fast instead of hanging
+      child.stdin?.end();
     });
 
   ctx.ipc.handle('workspace:create', async (name, model) => {
