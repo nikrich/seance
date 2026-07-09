@@ -61,7 +61,8 @@ and never invent an answer to an escalation-worthy question.
 
 If the story's requirement has `feature_branch` in its frontmatter
 (feature-pr mode), use that branch wherever `<default_branch>` appears in
-this skill — the diff under review is story-branch vs `feature_branch`, so
+this skill as a diff or merge base (the feature-pr PR command's `--base
+<default_branch>` stays as-is) — the diff under review is story-branch vs `feature_branch`, so
 previously merged sibling stories are NOT part of this story's diff and must
 not be judged as scope creep.
 
