@@ -19,6 +19,7 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 - Requirement (`state/requirements/<id>.md`) frontmatter: `id, title, status: inbox|planning|planned|done, priority: low|normal|high`, optional `paused: true`, optional `blocked_reason`.
 - Story (`state/stories/<id>.md`) frontmatter: `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked, deps: [], oracle, branch, attempts, model_hint`.
 - Agent registry (`state/agents/<agent-id>.md`) frontmatter: `id, role: planner|builder|critic, pid, story, requirement, started_at (ISO8601 UTC), model`.
+- Question (`questions/*.md`) frontmatter: `id, story, requirement, status, asked_at` — written by planners/builders/critics per "The knowledge chain", resolved by the human in Poltergeist.
 - `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes.
 
 ## Tick order
@@ -72,6 +73,20 @@ For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `ki
 - Any story with `attempts >= attempt_cap` and status `pending` → set `blocked`; write `attention/<story-id>.md` containing the story title and its full attempts ledger.
 - Any requirement whose stories all have status `merged` or `pr_open` → set requirement `done`.
 
+### 4b. Process answered questions
+
+For each `questions/*.md` with `status: answered`:
+
+- If it names a `story`: append to that story's `## Attempts ledger`:
+  `### Question answered (<ts>)` followed by the full question and answer
+  text. If the story's status is `pending` (it exited waiting on this
+  question), also reset `attempts: 0` so it spawns immediately; a `building`
+  story just gets the ledger entry — its current attempt finishes first.
+- Move the file to `questions/answered/` (create the dir if needed).
+
+A story referenced by any `status: open` question is NOT eligible to spawn
+(add this to the builder-eligibility rule in step 6).
+
 ### 5. Spawn planner
 
 If live planners < `max_planner` AND some requirement has `status: inbox` (and no `blocked_reason`): pick the highest priority (high > normal > low, then oldest), set it `planning`, spawn:
@@ -102,7 +117,7 @@ model: <models.planner>
 
 While live builders < `max_builders`:
 
-- Eligible story: `status: pending`, every id in `deps` has status `merged` or `pr_open`, its `repo` not in `paused_repos`, its requirement not paused.
+- Eligible story: `status: pending`, every id in `deps` has status `merged` or `pr_open`, its `repo` not in `paused_repos`, its requirement not paused, and no `questions/*.md` with `status: open` names the story.
 - Pick highest requirement priority, then fewest `attempts`, then oldest.
 - If none eligible, stop filling.
 - Set story `building`; spawn (same nohup pattern) with prompt `"Invoke the seance-builder skill for story <story-id>."`, model = story `model_hint` if set else `models.builder`; registry entry with `role: builder`, `story: <story-id>`.

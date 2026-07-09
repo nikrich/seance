@@ -12,6 +12,41 @@ description: Use ONLY when invoked as the Séance planner for a specific require
 - **YOU MUST** plan exactly the requirement you were invoked for, then exit. Do not pick up other requirements, do not implement anything, do not spawn processes.
 - Stories must be the **smallest independently-mergeable units**. A story that can't be merged on its own without breaking `default_branch` is two stories or has a missing `deps` edge.
 
+## The knowledge chain (when you lack context)
+
+When a gap in product intent, naming, prior art, or past decisions blocks
+correct work — not mere curiosity — resolve it in this order:
+
+1. **Vault:** `poltergeist_search` (cheap, no LLM) to locate notes; escalate
+   to `poltergeist_ask` (synthesized answer with citations) only when search
+   hits need interpreting.
+2. **Shared memory:** `mempalace_search`.
+3. **The human — last resort, only if the gap blocks correctness:** write
+   `questions/<your-story-or-req-id>-<slug>.md`:
+
+   ```markdown
+   ---
+   id: <story-or-req-id>-<slug>
+   story: <story-id>            # omit for requirement-level questions
+   requirement: <req-id>
+   status: open
+   asked_at: <ISO8601 UTC>
+   ---
+   ## Question
+
+   <the question; why it blocks you; the options you considered, with
+   trade-offs — give the human something to decide, not research>
+   ```
+
+   Then: builders/critics set their story back to `pending` with a ledger
+   note `waiting-on-question: <file>` and exit. Planners note the open
+   question in the spec's "Open questions" and continue speccing what is
+   answerable.
+
+A failed MCP call (server not registered, sidecar not running) is a "no
+answer" — note it in your ledger and move down the chain. Never hang on it,
+and never invent an answer to an escalation-worthy question.
+
 ## Inputs
 
 - The requirement: `state/requirements/<req-id>.md` (status will be `planning`).
