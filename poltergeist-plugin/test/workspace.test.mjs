@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, readlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos } = require('../src/lib/workspace.cjs');
+const { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos, ensureMcpConfig } = require('../src/lib/workspace.cjs');
 
 const TEMPLATE = `
 workspace: my-workspace
@@ -174,4 +174,21 @@ test('syncRepos: clones only repos missing from repos/', async () => {
   const clones = await syncRepos(wsPath, model, again.runGit);
   assert.deepEqual(again.calls, [['-c', 'protocol.ext.allow=never', 'clone', '--branch', 'dev', '--', 'git@github.com:you/second.git', join(wsPath, 'repos', 'second')]]);
   assert.deepEqual(clones, [{ name: 'second', ok: true, error: undefined }]);
+});
+
+test('scaffoldWorkspace: writes .mcp.json registering the poltergeist MCP server', async () => {
+  const { root, seanceRepo } = tmpSetup();
+  const { runGit } = fakeGit();
+  const { wsPath } = await scaffoldWorkspace({ root, name: 'proj', config: MODEL(), seanceRepo, runGit });
+  const mcp = JSON.parse(readFileSync(join(wsPath, '.mcp.json'), 'utf-8'));
+  assert.equal(mcp.mcpServers.poltergeist.command, 'ghostbrain-mcp');
+});
+
+test('ensureMcpConfig: never overwrites an existing .mcp.json', async () => {
+  const { root, seanceRepo } = tmpSetup();
+  const { runGit } = fakeGit();
+  const { wsPath } = await scaffoldWorkspace({ root, name: 'proj', config: MODEL(), seanceRepo, runGit });
+  writeFileSync(join(wsPath, '.mcp.json'), '{"custom":true}');
+  assert.equal(ensureMcpConfig(wsPath), false);
+  assert.equal(readFileSync(join(wsPath, '.mcp.json'), 'utf-8'), '{"custom":true}');
 });

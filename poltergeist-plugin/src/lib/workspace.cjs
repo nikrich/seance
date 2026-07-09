@@ -113,6 +113,20 @@ async function syncRepos(wsPath, config, runGit) {
   return clones;
 }
 
+// Registers the Poltergeist vault MCP server for every claude agent spawned
+// in this workspace (project-scoped .mcp.json). `ghostbrain-mcp` resolves
+// from PATH at agent runtime; if it isn't installed the agents' knowledge
+// chain treats the failed connection as "no answer" and moves on.
+function ensureMcpConfig(wsPath) {
+  const file = join(wsPath, '.mcp.json');
+  if (existsSync(file)) return false;
+  writeFileSync(
+    file,
+    JSON.stringify({ mcpServers: { poltergeist: { command: 'ghostbrain-mcp', args: [] } } }, null, 2) + '\n',
+  );
+  return true;
+}
+
 async function scaffoldWorkspace({ root, name, config, seanceRepo, runGit }) {
   if (typeof name !== 'string' || !NAME_RE.test(name)) {
     throw new Error(`invalid workspace name "${name}" — letters, digits, . _ - only`);
@@ -125,6 +139,7 @@ async function scaffoldWorkspace({ root, name, config, seanceRepo, runGit }) {
   }
   for (const d of CONTRACT_DIRS) mkdirSync(join(wsPath, d), { recursive: true });
   writeFileSync(join(wsPath, 'config.yaml'), configToYaml({ ...config, workspace: name }));
+  ensureMcpConfig(wsPath);
   try {
     symlinkSync(skillsSrc, join(wsPath, '.claude', 'skills'));
   } catch (e) {
@@ -134,4 +149,4 @@ async function scaffoldWorkspace({ root, name, config, seanceRepo, runGit }) {
   return { wsPath, clones };
 }
 
-module.exports = { NAME_RE, parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos };
+module.exports = { NAME_RE, parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos, ensureMcpConfig };
