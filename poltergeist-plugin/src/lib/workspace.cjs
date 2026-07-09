@@ -89,4 +89,45 @@ function validateConfigModel(m) {
   return errors;
 }
 
-module.exports = { NAME_RE, parseConfig, configToYaml, validateConfigModel };
+const CONTRACT_DIRS = [
+  'inbox/processed', 'state/requirements', 'state/stories', 'state/agents',
+  'attention', 'journal', 'repos', 'worktrees', 'logs', '.claude',
+];
+
+async function syncRepos(wsPath, config, runGit) {
+  const clones = [];
+  for (const r of config.repos ?? []) {
+    const dest = join(wsPath, 'repos', r.name);
+    if (existsSync(dest)) continue;
+    const res = await runGit(['clone', '--branch', r.default_branch, r.url, dest]);
+    clones.push({
+      name: r.name,
+      ok: res.code === 0,
+      error: res.code === 0 ? undefined : (res.stderr || 'git clone failed').trim().slice(-500),
+    });
+  }
+  return clones;
+}
+
+async function scaffoldWorkspace({ root, name, config, seanceRepo, runGit }) {
+  if (typeof name !== 'string' || !NAME_RE.test(name)) {
+    throw new Error(`invalid workspace name "${name}" — letters, digits, . _ - only`);
+  }
+  const wsPath = join(root, name);
+  if (existsSync(wsPath)) throw new Error(`workspace already exists: ${wsPath}`);
+  const skillsSrc = join(seanceRepo, 'skills');
+  if (!existsSync(skillsSrc)) {
+    throw new Error(`skills not found at ${skillsSrc} — set the seanceRepoPath plugin setting to your séance checkout`);
+  }
+  for (const d of CONTRACT_DIRS) mkdirSync(join(wsPath, d), { recursive: true });
+  writeFileSync(join(wsPath, 'config.yaml'), configToYaml({ ...config, workspace: name }));
+  try {
+    symlinkSync(skillsSrc, join(wsPath, '.claude', 'skills'));
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+  }
+  const clones = await syncRepos(wsPath, config, runGit);
+  return { wsPath, clones };
+}
+
+module.exports = { NAME_RE, parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos };
