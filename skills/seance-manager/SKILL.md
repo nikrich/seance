@@ -26,8 +26,8 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 
 ```
 0. Init  →  1. Drain inbox  →  2. Reap  →  3. Kill stuck  →  4. Terminal states
-→ 5. Spawn planner  →  6. Spawn-fill builders  →  7. Spawn critics
-→ 8. Journal + digest  →  9. next-sleep  →  exit
+→ 4b. Process answered questions  →  5. Spawn planner  →  6. Spawn-fill builders
+→ 7. Spawn critics  →  8. Journal + digest  →  9. next-sleep  →  exit
 ```
 
 ### 0. Init
@@ -60,7 +60,7 @@ kill -0 <pid> 2>/dev/null && echo alive || echo dead
 
 If **dead**: move the registry file to `journal/agents/`. Then reconcile its work:
 
-- role `planner`, requirement still `planning` and no new stories exist for it → set requirement back to `inbox` (it died mid-plan; it will be re-planned).
+- role `planner`, requirement still `planning` and no new stories exist for it → leave it at `planning` (it died mid-decompose; the next tick respawns Phase B for it). If it's still `speccing` with no `## Spec` section written, no action is needed — it stays `speccing` and is retried automatically.
 - role `builder`, story still `building` → set story `pending`, increment `attempts`, append to the story's `## Attempts ledger`: `### Attempt N — agent died (<timestamp>)` + "Builder process exited without handing off. Check logs/<agent-id>.log if this repeats."
 - role `critic`, story still `verifying` → leave status `verifying` (a new critic will be spawned in step 7).
 

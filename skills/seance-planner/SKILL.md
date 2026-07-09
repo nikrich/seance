@@ -1,6 +1,6 @@
 ---
 name: seance-planner
-description: Use ONLY when invoked as the Séance planner for a specific requirement ("Invoke the seance-planner skill for requirement <id>"). Decomposes one requirement into stories with executable done-oracles, then exits. Runs with cwd = a Séance workspace.
+description: Use ONLY when invoked as the Séance planner for a specific requirement ("Invoke the seance-planner skill to DRAFT THE SPEC for requirement <id>" or "...to DECOMPOSE requirement <id> per its approved spec"). Drafts the spec for human approval (Phase A), then decomposes the approved requirement into stories with executable done-oracles (Phase B), then exits. Runs with cwd = a Séance workspace.
 ---
 
 # Séance Planner — One Requirement → Stories
@@ -49,8 +49,8 @@ and never invent an answer to an escalation-worthy question.
 
 ## Inputs
 
-- The requirement: `state/requirements/<req-id>.md` (status will be `planning`).
-- `config.yaml`: `repos.<name>.{default_branch,test_command}` — the repos you may target.
+- The requirement: `state/requirements/<req-id>.md` (status will be `speccing` for Phase A or `planning` for Phase B — see below).
+- `config.yaml`: `repos.<name>.{default_branch,test_command,integration}` — the repos you may target.
 - The repos themselves: `repos/<name>/`. **Read before you plan**: project layout, conventions, how existing similar features are built, how tests are written and run. Plan stories that fit the codebase as it actually is.
 
 ## Phase A — draft the spec (when invoked to DRAFT THE SPEC)

@@ -54,6 +54,7 @@ and never invent an answer to an escalation-worthy question.
 ## Inputs
 
 - The story: `state/stories/<story-id>.md` (`repo`, `branch`, `oracle`, `## Task` acceptance criteria, ledger — including what the builder flagged for you).
+- The story's requirement: `state/requirements/<requirement>.md` — `feature-pr` mode reads/writes `feature_branch` and `feature_pr` here, and needs every sibling story's `status` from `state/stories/`.
 - `config.yaml`: `repos.<repo>.{default_branch,integration,test_command}`.
 
 ## Procedure

@@ -52,6 +52,7 @@ and never invent an answer to an escalation-worthy question.
 ## Inputs
 
 - The story: `state/stories/<story-id>.md` — your entire brief. `repo`, `branch`, `oracle`, `## Task`, `## Attempts ledger`.
+- The story's requirement: `state/requirements/<requirement>.md` — check for `feature_branch` (feature-pr mode; see step 1).
 - Dependency stories: `state/stories/<dep-id>.md` for every id in your story's `deps` — you need each one's `status` and `branch` (see step 1b).
 - `config.yaml`: `repos.<repo>.{default_branch,test_command}`.
 - Timestamps: always from `date -u +%Y-%m-%dT%H:%M:%SZ`, never from memory.
