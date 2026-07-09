@@ -87,6 +87,26 @@ test('validateConfigModel: rejects broken models', () => {
   const sleepy = parseConfig(TEMPLATE);
   sleepy.sleep.active = 0;
   assert.ok(validateConfigModel(sleepy).some((e) => e.includes('sleep.active')));
+
+  const badUrl = parseConfig(TEMPLATE);
+  badUrl.repos[0].url = '--upload-pack=touch /tmp/pwned';
+  assert.ok(validateConfigModel(badUrl).some((e) => e === 'repo example-repo: url must not start with "-"'));
+
+  const badBranch = parseConfig(TEMPLATE);
+  badBranch.repos[0].default_branch = '--upload-pack=touch /tmp/pwned';
+  assert.ok(validateConfigModel(badBranch).some((e) => e === 'repo example-repo: default_branch is invalid'));
+
+  const emptyBranch = parseConfig(TEMPLATE);
+  emptyBranch.repos[0].default_branch = '';
+  assert.ok(validateConfigModel(emptyBranch).some((e) => e === 'repo example-repo: default_branch is invalid'));
+});
+
+test('configToYaml: ignores extra entries that collide with known keys', () => {
+  const m = parseConfig(TEMPLATE);
+  m.extra = { repos: 'evil', custom_key: 'kept' };
+  const back = parseConfig(configToYaml(m));
+  assert.deepEqual(back.repos, m.repos);
+  assert.deepEqual(back.extra, { custom_key: 'kept' });
 });
 
 function fakeGit(failFor = []) {
@@ -122,7 +142,7 @@ test('scaffoldWorkspace: creates the contract tree, config, skills symlink, clon
   const cfg = parseConfig(readFileSync(join(wsPath, 'config.yaml'), 'utf-8'));
   assert.equal(cfg.workspace, 'proj'); // name wins over the model's workspace field
   assert.equal(readlinkSync(join(wsPath, '.claude', 'skills')), join(seanceRepo, 'skills'));
-  assert.deepEqual(calls, [['clone', '--branch', 'main', 'git@github.com:you/example-repo.git', join(wsPath, 'repos', 'example-repo')]]);
+  assert.deepEqual(calls, [['-c', 'protocol.ext.allow=never', 'clone', '--branch', 'main', '--', 'git@github.com:you/example-repo.git', join(wsPath, 'repos', 'example-repo')]]);
   assert.deepEqual(clones, [{ name: 'example-repo', ok: true, error: undefined }]);
 });
 
@@ -152,6 +172,6 @@ test('syncRepos: clones only repos missing from repos/', async () => {
   model.repos.push({ name: 'second', url: 'git@github.com:you/second.git', default_branch: 'dev', integration: 'merge', test_command: 'make test' });
   const again = fakeGit();
   const clones = await syncRepos(wsPath, model, again.runGit);
-  assert.deepEqual(again.calls, [['clone', '--branch', 'dev', 'git@github.com:you/second.git', join(wsPath, 'repos', 'second')]]);
+  assert.deepEqual(again.calls, [['-c', 'protocol.ext.allow=never', 'clone', '--branch', 'dev', '--', 'git@github.com:you/second.git', join(wsPath, 'repos', 'second')]]);
   assert.deepEqual(clones, [{ name: 'second', ok: true, error: undefined }]);
 });

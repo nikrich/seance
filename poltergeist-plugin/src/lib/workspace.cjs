@@ -62,7 +62,7 @@ function configToYaml(model) {
     attempt_cap: model.attempt_cap,
     models: model.models,
     sleep: model.sleep,
-    ...(model.extra ?? {}),
+    ...Object.fromEntries(Object.entries(model.extra ?? {}).filter(([k]) => !KNOWN_KEYS.includes(k))),
   });
 }
 
@@ -74,8 +74,12 @@ function validateConfigModel(m) {
   for (const r of repos) {
     if (!r?.name || !NAME_RE.test(r.name)) errors.push(`repo name "${r?.name ?? ''}" is invalid`);
     if (!r?.url) errors.push(`repo ${r?.name ?? '?'}: url is required`);
+    else if (r.url.startsWith('-')) errors.push(`repo ${r?.name ?? '?'}: url must not start with "-"`);
     if (r?.integration !== 'pr' && r?.integration !== 'merge') {
       errors.push(`repo ${r?.name ?? '?'}: integration must be "pr" or "merge"`);
+    }
+    if (!r?.default_branch || r.default_branch.startsWith('-')) {
+      errors.push(`repo ${r?.name ?? '?'}: default_branch is invalid`);
     }
   }
   const names = repos.map((r) => r?.name);
@@ -99,7 +103,7 @@ async function syncRepos(wsPath, config, runGit) {
   for (const r of config.repos ?? []) {
     const dest = join(wsPath, 'repos', r.name);
     if (existsSync(dest)) continue;
-    const res = await runGit(['clone', '--branch', r.default_branch, r.url, dest]);
+    const res = await runGit(['-c', 'protocol.ext.allow=never', 'clone', '--branch', r.default_branch, '--', r.url, dest]);
     clones.push({
       name: r.name,
       ok: res.code === 0,
