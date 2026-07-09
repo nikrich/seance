@@ -3,7 +3,7 @@
 // repo README. Yaml-lite frontmatter: scalars, inline arrays, quoted strings —
 // exactly what séance state files use, nothing more.
 
-const { existsSync, readdirSync, readFileSync } = require('node:fs');
+const { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } = require('node:fs');
 const { join } = require('node:path');
 
 function parseScalar(raw) {
@@ -140,4 +140,18 @@ function readWorkspaceStatus(wsPath) {
   return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts };
 }
 
-module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive };
+// A human "resolving" an attention item = moving it out of attention/ so the
+// banner clears, into .dismissed/ so nothing is silently lost (dot-prefixed
+// entries are filtered from the attention listing).
+function dismissAttention(wsPath, name) {
+  if (typeof name !== 'string' || !/^[\w][\w.\- ]*$/.test(name) || name.includes('..')) {
+    throw new Error(`invalid attention item: ${name}`);
+  }
+  const src = join(wsPath, 'attention', name);
+  if (!existsSync(src)) throw new Error(`attention item not found: ${name}`);
+  const dismissedDir = join(wsPath, 'attention', '.dismissed');
+  mkdirSync(dismissedDir, { recursive: true });
+  renameSync(src, join(dismissedDir, name));
+}
+
+module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive, dismissAttention };

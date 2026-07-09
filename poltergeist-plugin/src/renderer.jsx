@@ -598,7 +598,22 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
               background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`,
               borderRadius: theme.rMd, padding: '10px 13px', fontSize: 12.5, lineHeight: 1.45,
             }}>
-              <strong style={{ color: theme.ink0 }}>{a.name}</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <strong style={{ color: theme.ink0, flex: 1, minWidth: 0 }}>{a.name}</strong>
+                <button
+                  type="button"
+                  title="dismiss — moves it to attention/.dismissed/"
+                  onClick={() => act(() => api.ipc.invoke('attention:dismiss', ws, a.name))}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+                    background: 'transparent', border: `1px solid ${theme.oxblood}`,
+                    color: theme.pillOxbloodFg, borderRadius: theme.rPill,
+                    padding: '2px 10px', fontFamily: theme.fontMono, fontSize: 10.5, flexShrink: 0,
+                  }}
+                >
+                  <X size={11} /> dismiss
+                </button>
+              </div>
               <div style={{ whiteSpace: 'pre-wrap', color: theme.pillOxbloodFg, marginTop: 4, maxHeight: 120, overflow: 'auto' }}>{a.body}</div>
             </div>
           ))}

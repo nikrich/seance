@@ -8,7 +8,7 @@ var __commonJS = (cb, mod) => function __require() {
 var require_state_files = __commonJS({
   "src/lib/state-files.cjs"(exports2, module2) {
     "use strict";
-    var { existsSync: existsSync2, readdirSync: readdirSync2, readFileSync: readFileSync2 } = require("node:fs");
+    var { existsSync: existsSync2, mkdirSync: mkdirSync2, readdirSync: readdirSync2, readFileSync: readFileSync2, renameSync } = require("node:fs");
     var { join: join2 } = require("node:path");
     function parseScalar(raw) {
       const s = raw.trim();
@@ -116,7 +116,17 @@ var require_state_files = __commonJS({
       });
       return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts };
     }
-    module2.exports = { parseFrontmatter: parseFrontmatter2, readWorkspaceStatus: readWorkspaceStatus2, pidAlive: pidAlive2 };
+    function dismissAttention2(wsPath, name) {
+      if (typeof name !== "string" || !/^[\w][\w.\- ]*$/.test(name) || name.includes("..")) {
+        throw new Error(`invalid attention item: ${name}`);
+      }
+      const src = join2(wsPath, "attention", name);
+      if (!existsSync2(src)) throw new Error(`attention item not found: ${name}`);
+      const dismissedDir = join2(wsPath, "attention", ".dismissed");
+      mkdirSync2(dismissedDir, { recursive: true });
+      renameSync(src, join2(dismissedDir, name));
+    }
+    module2.exports = { parseFrontmatter: parseFrontmatter2, readWorkspaceStatus: readWorkspaceStatus2, pidAlive: pidAlive2, dismissAttention: dismissAttention2 };
   }
 });
 
@@ -7836,7 +7846,7 @@ var {
 } = require("node:fs");
 var { homedir } = require("node:os");
 var { join, resolve } = require("node:path");
-var { readWorkspaceStatus, pidAlive } = require_state_files();
+var { readWorkspaceStatus, pidAlive, dismissAttention } = require_state_files();
 var { parseFrontmatter } = require_state_files();
 var { buildActivity } = require_activity();
 var { createChat } = require_chat();
@@ -7924,6 +7934,11 @@ ${body.trim()}
     );
     wakeHeartbeat(ctx, ws);
     return { ok: true, file: inboxFile };
+  });
+  ctx.ipc.handle("attention:dismiss", (wsPath, name) => {
+    const ws = assertWorkspace(wsPath);
+    dismissAttention(ws, name);
+    return { ok: true };
   });
   ctx.ipc.handle("steer", (wsPath, text) => {
     const ws = assertWorkspace(wsPath);
