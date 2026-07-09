@@ -17,6 +17,7 @@ description: Use ONLY when invoked as the Séance builder for a specific story (
 ## Inputs
 
 - The story: `state/stories/<story-id>.md` — your entire brief. `repo`, `branch`, `oracle`, `## Task`, `## Attempts ledger`.
+- Dependency stories: `state/stories/<dep-id>.md` for every id in your story's `deps` — you need each one's `status` and `branch` (see step 1b).
 - `config.yaml`: `repos.<repo>.{default_branch,test_command}`.
 - Timestamps: always from `date -u +%Y-%m-%dT%H:%M:%SZ`, never from memory.
 
@@ -32,7 +33,20 @@ fi
 cd "worktrees/<story-id>"
 ```
 
-On a retry attempt, rebase your branch on the latest `default_branch` first (`git fetch` if the repo has a remote; local repos: `git rebase <default_branch>`). If the rebase conflicts, resolve honestly or record why you can't.
+On a retry attempt, rebase your branch on the latest `default_branch` first (`git fetch` if the repo has a remote; local repos: `git rebase <default_branch>`). If the rebase conflicts, resolve honestly or record why you can't. Then re-run step 1b — a dep may have gained commits since your last attempt, or merged (in which case its content now arrives via the rebase instead).
+
+### 1b. Bring in unmerged dependencies
+
+The manager spawns you as soon as every dep is `merged` or `pr_open`. A `merged` dep is already in `<default_branch>` — nothing to do. A `pr_open` dep is **not on `<default_branch>` yet**: its code exists only on its pushed story branch, so building against a bare `<default_branch>` checkout would block on APIs that "don't exist". For each dep story with `status: pr_open`, read its `branch` from `state/stories/<dep-id>.md` and merge it in:
+
+```bash
+git fetch origin "<dep-branch>" && git merge --no-edit "origin/<dep-branch>" \
+  || git merge --no-edit "<dep-branch>"   # local-only repos: no remote to fetch
+```
+
+- Merge deps in `deps` order. Record which dep branches you merged (and at which commit) in your ledger entry.
+- If a dep merge conflicts: resolve honestly only when the resolution is obvious and inside your story's scope; otherwise record the conflict in the ledger, set status back to `pending`, and exit.
+- If a dep's branch can't be found anywhere: treat it as a missing dependency — ledger, `pending`, exit. Do not build against `<default_branch>` and hope.
 
 ### 2. Build (TDD)
 
@@ -53,8 +67,11 @@ On a retry attempt, rebase your branch on the latest `default_branch` first (`gi
 ### Attempt <N+1> — handed off (<timestamp>)
 - What was done: <2-4 lines: approach, files touched>
 - Key decisions: <anything non-obvious>
+- Dep branches merged in: <dep-id @ commit, per step 1b — or "none">
 - For the critic: <anything you're unsure about or that deserves scrutiny>
 ```
+
+If you merged unmerged dep branches (step 1b), your branch is stacked: its diff against `<default_branch>` includes the deps' commits until their own PRs merge. Say so in the "For the critic" line so the review scopes to your story's changes.
 
 3. Leave the worktree in place (the critic and any retry need it). Reply with a two-line summary. Exit.
 
