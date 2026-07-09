@@ -75,6 +75,7 @@ For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `ki
   status `merged` or `pr_open` → set requirement `done`.
 - (feature-pr repos) the critic sets the requirement `done` when it opens
   the feature PR — do not mark it done on story statuses alone.
+- (feature-pr repos) if every story of a requirement is `merged`, the requirement's frontmatter has no `feature_pr`, and no live critic references any of its stories → write `attention/<req-id>-feature-pr.md` titled "feature PR never opened for <req-id>" containing: "all stories merged but the feature PR was never opened — spawn cause: critic died or gh failed; re-run: open the PR manually or requeue the last story to verifying." Keeps the stall loud instead of silent.
 
 ### 4b. Process answered questions
 
@@ -85,6 +86,9 @@ For each `questions/*.md` with `status: answered`:
   text. If the story's status is `pending` (it exited waiting on this
   question), also reset `attempts: 0` so it spawns immediately; a `building`
   story just gets the ledger entry — its current attempt finishes first.
+- If it has no `story` (requirement-level question): append to
+  `state/requirements/<requirement>.md` a `## Answered question (<ts>)`
+  block with the full question and answer text.
 - Move the file to `questions/answered/` (create the dir if needed).
 
 A story referenced by any `status: open` question is NOT eligible to spawn.
@@ -96,6 +100,7 @@ requirement, choosing the prompt by status:
 
 - `status: speccing` (and no `blocked_reason`) → prompt
   `"Invoke the seance-planner skill to DRAFT THE SPEC for requirement <id>."`
+- `status: inbox` (legacy, pre-spec-gate) → treat exactly like `speccing`: same DRAFT THE SPEC prompt, and set the requirement's status to `speccing` when you spawn it.
 - `status: planning` (spec approved by the human; and no `blocked_reason`) → prompt
   `"Invoke the seance-planner skill to DECOMPOSE requirement <id> per its approved spec."`
 

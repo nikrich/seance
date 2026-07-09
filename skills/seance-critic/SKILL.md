@@ -109,12 +109,20 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
 - `pr`: `git push -u origin <branch>` then `gh pr create --fill --head <branch>`; record the PR URL in the ledger.
 - `feature-pr`: if the requirement's frontmatter has no `feature_branch`,
   fall back to the `pr` bullet above instead. Otherwise: merge `--no-ff`
-  into the requirement's `feature_branch` and
-  push it; story `status: merged` (merged-to-feature). Then, if EVERY story
+  into the requirement's `feature_branch`. Run `test_command` once more on
+  `feature_branch` post-merge. If it fails, revert the merge
+  (`git reset --hard ORIG_HEAD`) and treat as REJECT with the failure
+  output. Then push it; if the push is rejected as non-fast-forward, a
+  sibling critic just pushed to `feature_branch` first — `git pull --rebase`
+  the feature branch and retry the merge once. Set story `status: merged`
+  (merged-to-feature). Then, if EVERY story
   of the requirement now has `status: merged`:
   `gh pr create --fill --base <default_branch> --head <feature_branch>`,
   record the URL as `feature_pr:` in the requirement frontmatter, and set
-  the requirement `status: done` (the human merges the PR).
+  the requirement `status: done` (the human merges the PR). If `gh pr
+  create` fails because a PR for `feature_branch` already exists, fetch its
+  URL instead (`gh pr view <feature_branch> --json url`), record that as
+  `feature_pr`, and treat as success.
   Conflicts merging into the feature branch: REJECT with report
   "rebase onto <feature_branch> and resolve conflicts in <files>", exactly
   like the default_branch conflict rule.

@@ -57,9 +57,11 @@ and never invent an answer to an escalation-worthy question.
 
 1. Research before writing: read the requirement body, the relevant code,
    and run the knowledge chain (vault first) for product intent and prior
-   decisions. Check `state/requirements/` for non-done requirements that
-   substantially overlap this one — overlap goes in the spec's
-   `### Conflicts` section, not into duplicate planning.
+   decisions. Also read `questions/answered/` entries whose `requirement`
+   matches this one — they carry human answers from earlier drafts. Check
+   `state/requirements/` for non-done requirements that substantially
+   overlap this one — overlap goes in the spec's `### Conflicts` section,
+   not into duplicate planning.
 2. Write a `## Spec` section into `state/requirements/<id>.md`:
    `### Goal` (2-3 sentences), `### Scope` (in / out bullets),
    `### Acceptance criteria` (testable bullets), `### UI placement` (when
@@ -75,10 +77,17 @@ and never invent an answer to an escalation-worthy question.
 
 Decompose from the approved `## Spec` — it supersedes the raw requirement
 body wherever they differ. Everything below (stories, oracles, deps) is
-unchanged.
+unchanged. If the requirement has no `## Spec` section (legacy, mid-flight
+before the spec gate existed), treat the requirement body as the approved
+spec.
 
 If every repo this requirement touches has `integration: feature-pr`:
-create the feature branch once, before writing stories —
+create the feature branch once, before writing stories, and do it
+idempotently — a retried Phase B (planner died mid-decompose) must not
+recreate or clobber a branch that already exists. `git -C repos/<repo> fetch
+origin` first (skip if the repo has no remote), then check whether
+`seance/<req-id>` already exists locally or on `origin`; if it does, reuse
+it as-is. Otherwise create it —
 `git -C repos/<repo> branch "seance/<req-id>" "<default_branch>" && git -C repos/<repo> push -u origin "seance/<req-id>"`
 (skip push for local-only repos) — and record `feature_branch: seance/<req-id>`
 in the requirement frontmatter. Stories inherit it implicitly.
