@@ -56,7 +56,10 @@ function createChat({ dataDir, runClaude }) {
       throw new Error('the spirits are still deliberating — wait for the current answer');
     }
     inFlight.add(ws);
-    const ts = new Date().toISOString();
+    // persist the user message NOW — an answer can take minutes, and the
+    // renderer reloads the transcript whenever the tab remounts; a message
+    // that only lives in component state would vanish on a tab switch
+    appendMessages(ws, [{ role: 'user', text, ts: new Date().toISOString() }]);
     try {
       const sessionId = sessions()[ws];
       const prompt = sessionId ? text : PREAMBLE + text;
@@ -94,14 +97,10 @@ function createChat({ dataDir, runClaude }) {
       }
       if (parsed.session_id) setSession(ws, parsed.session_id);
       const answer = String(parsed.result ?? '');
-      appendMessages(ws, [
-        { role: 'user', text, ts },
-        { role: 'assistant', text: answer, ts: new Date().toISOString() },
-      ]);
+      appendMessages(ws, [{ role: 'assistant', text: answer, ts: new Date().toISOString() }]);
       return { answer };
     } catch (err) {
       appendMessages(ws, [
-        { role: 'user', text, ts },
         { role: 'error', text: err instanceof Error ? err.message : String(err), ts: new Date().toISOString() },
       ]);
       throw err;
@@ -110,13 +109,17 @@ function createChat({ dataDir, runClaude }) {
     }
   }
 
+  function pending(ws) {
+    return inFlight.has(ws);
+  }
+
   function reset(ws) {
     setSession(ws, null);
     mkdirSync(join(dataDir, 'chat'), { recursive: true });
     writeFileSync(transcriptFile(ws), '[]');
   }
 
-  return { send, history, reset };
+  return { send, history, reset, pending };
 }
 
 module.exports = { createChat };

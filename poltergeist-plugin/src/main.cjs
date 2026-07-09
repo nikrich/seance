@@ -304,10 +304,18 @@ function activate(ctx) {
     const ws = assertWorkspace(wsPath);
     if (typeof text !== 'string' || !text.trim()) throw new Error('message required');
     const model = ctx.settings.get('chatModel') ?? 'sonnet';
-    return chatApi.send(ws, text.trim(), model);
+    try {
+      return await chatApi.send(ws, text.trim(), model);
+    } finally {
+      // the sender may have unmounted (tab switch) — tell whoever is
+      // mounted now that the transcript changed
+      ctx.ipc.send('chat:changed', { wsPath: ws });
+    }
   });
 
   ctx.ipc.handle('chat:history', (wsPath) => chatApi.history(assertWorkspace(wsPath)));
+
+  ctx.ipc.handle('chat:pending', (wsPath) => chatApi.pending(assertWorkspace(wsPath)));
 
   ctx.ipc.handle('chat:reset', (wsPath) => {
     chatApi.reset(assertWorkspace(wsPath));

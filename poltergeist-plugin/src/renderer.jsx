@@ -969,7 +969,19 @@ function Chat({ api, ws, theme }) {
   const taRef = useRef(null);
 
   useEffect(() => {
-    api.ipc.invoke('chat:history', ws).then(setMessages).catch(() => setMessages([]));
+    // an answer can take minutes and the send may have been started by a
+    // previous mount of this tab — restore both the transcript and the
+    // in-flight indicator, and refresh whenever the main process reports
+    // the transcript changed
+    const refresh = () => {
+      api.ipc.invoke('chat:history', ws).then(setMessages).catch(() => setMessages([]));
+      api.ipc.invoke('chat:pending', ws).then((p) => setPending(Boolean(p))).catch(() => {});
+    };
+    refresh();
+    const off = api.ipc.on('chat:changed', (p) => {
+      if (p?.wsPath === ws) refresh();
+    });
+    return () => off();
   }, [api, ws]);
 
   useEffect(() => {

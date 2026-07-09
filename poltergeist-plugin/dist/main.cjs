@@ -285,7 +285,7 @@ var require_chat = __commonJS({
           throw new Error("the spirits are still deliberating \u2014 wait for the current answer");
         }
         inFlight.add(ws);
-        const ts = (/* @__PURE__ */ new Date()).toISOString();
+        appendMessages(ws, [{ role: "user", text, ts: (/* @__PURE__ */ new Date()).toISOString() }]);
         try {
           const sessionId = sessions()[ws];
           const prompt = sessionId ? text : PREAMBLE + text;
@@ -317,14 +317,10 @@ var require_chat = __commonJS({
           }
           if (parsed.session_id) setSession(ws, parsed.session_id);
           const answer = String(parsed.result ?? "");
-          appendMessages(ws, [
-            { role: "user", text, ts },
-            { role: "assistant", text: answer, ts: (/* @__PURE__ */ new Date()).toISOString() }
-          ]);
+          appendMessages(ws, [{ role: "assistant", text: answer, ts: (/* @__PURE__ */ new Date()).toISOString() }]);
           return { answer };
         } catch (err) {
           appendMessages(ws, [
-            { role: "user", text, ts },
             { role: "error", text: err instanceof Error ? err.message : String(err), ts: (/* @__PURE__ */ new Date()).toISOString() }
           ]);
           throw err;
@@ -332,12 +328,15 @@ var require_chat = __commonJS({
           inFlight.delete(ws);
         }
       }
+      function pending(ws) {
+        return inFlight.has(ws);
+      }
       function reset(ws) {
         setSession(ws, null);
         mkdirSync2(join2(dataDir, "chat"), { recursive: true });
         writeFileSync2(transcriptFile(ws), "[]");
       }
-      return { send, history, reset };
+      return { send, history, reset, pending };
     }
     module2.exports = { createChat: createChat2 };
   }
@@ -8096,9 +8095,14 @@ ${body.trim()}
     const ws = assertWorkspace(wsPath);
     if (typeof text !== "string" || !text.trim()) throw new Error("message required");
     const model = ctx.settings.get("chatModel") ?? "sonnet";
-    return chatApi.send(ws, text.trim(), model);
+    try {
+      return await chatApi.send(ws, text.trim(), model);
+    } finally {
+      ctx.ipc.send("chat:changed", { wsPath: ws });
+    }
   });
   ctx.ipc.handle("chat:history", (wsPath) => chatApi.history(assertWorkspace(wsPath)));
+  ctx.ipc.handle("chat:pending", (wsPath) => chatApi.pending(assertWorkspace(wsPath)));
   ctx.ipc.handle("chat:reset", (wsPath) => {
     chatApi.reset(assertWorkspace(wsPath));
     return { ok: true };

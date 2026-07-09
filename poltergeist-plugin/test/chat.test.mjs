@@ -83,6 +83,30 @@ test('rejects a concurrent send for the same workspace', async () => {
   assert.equal((await first).answer, 'done');
 });
 
+test('the user message is persisted immediately, not after the answer', async () => {
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const chat = createChat({
+    dataDir: mkdtempSync(join(tmpdir(), 'seance-chat-')),
+    runClaude: async () => {
+      await gate;
+      return okResult('s4', 'the answer');
+    },
+  });
+
+  const sending = chat.send(WS, 'a slow question', 'sonnet');
+  await new Promise((r) => setTimeout(r, 10));
+  // mid-flight (e.g. the user switched tabs and Chat remounted): the
+  // transcript must already carry the user message
+  assert.deepEqual(chat.history(WS).map((m) => m.role), ['user']);
+  assert.equal(chat.pending(WS), true);
+
+  release();
+  await sending;
+  assert.deepEqual(chat.history(WS).map((m) => m.role), ['user', 'assistant']);
+  assert.equal(chat.pending(WS), false);
+});
+
 const STDIN_WARNING =
   'Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.';
 
