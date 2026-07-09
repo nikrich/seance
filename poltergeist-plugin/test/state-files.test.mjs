@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { parseFrontmatter, readWorkspaceStatus, dismissAttention, answerQuestion, writeSpec } = require('../src/lib/state-files.cjs');
+const { parseFrontmatter, readWorkspaceStatus, dismissAttention, answerQuestion, writeSpec, ackFeaturePr } = require('../src/lib/state-files.cjs');
 
 test('dismissAttention: moves the item out of attention/, keeps an audit copy', () => {
   const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
@@ -152,7 +152,21 @@ test('answerQuestion: answers exactly once, validates names', () => {
   assert.throws(() => answerQuestion(ws, 'nope.md', 'x'), /not found/);
 });
 
-test('writeSpec: approve and revise transitions', () => {
+test('answerQuestion: a body line "status: open" does not re-arm an already-answered question', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'questions'), { recursive: true });
+  const f = 'REQ-7-s3-tricky.md';
+  writeFileSync(
+    join(ws, 'questions', f),
+    '---\nid: q\nstory: REQ-7-s3\nrequirement: REQ-7\nstatus: answered\n---\n## Question\n\nShould the default be "status: open" or "status: closed"?\n\n## Answer\n\nalready answered\n',
+  );
+  assert.throws(() => answerQuestion(ws, f, 'again'), /already answered/);
+  const text = readFileSync(join(ws, 'questions', f), 'utf-8');
+  assert.match(text, /^status: answered$/m);
+  assert.equal((text.match(/## Answer/g) ?? []).length, 1);
+});
+
+test('writeSpec: approve transitions to planning, stamps spec_approved_at, replaces the spec', () => {
   const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
   mkdirSync(join(ws, 'state/requirements'), { recursive: true });
   writeFileSync(
@@ -160,16 +174,77 @@ test('writeSpec: approve and revise transitions', () => {
     '---\nid: REQ-8\ntitle: T\nstatus: spec_review\npriority: normal\n---\nbody\n\n## Spec\n\nold spec\n',
   );
   writeSpec(ws, 'REQ-8', 'new approved spec', { mode: 'approve' });
-  let text = readFileSync(join(ws, 'state/requirements/REQ-8.md'), 'utf-8');
+  const text = readFileSync(join(ws, 'state/requirements/REQ-8.md'), 'utf-8');
   assert.match(text, /status: planning/);
   assert.match(text, /spec_approved_at: /);
   assert.match(text, /## Spec\n\nnew approved spec/);
   assert.ok(!text.includes('old spec'));
-
-  writeSpec(ws, 'REQ-8', 'tweaked spec', { mode: 'revise', feedback: 'tighter scope please' });
-  text = readFileSync(join(ws, 'state/requirements/REQ-8.md'), 'utf-8');
-  assert.match(text, /status: speccing/);
-  assert.match(text, /## Spec feedback \(.*\)\n\ntighter scope please/);
   assert.throws(() => writeSpec(ws, 'bad id!', 'x', { mode: 'approve' }), /invalid requirement id/);
   assert.throws(() => writeSpec(ws, 'REQ-99', 'x', { mode: 'approve' }), /not found/);
+});
+
+test('writeSpec: revise transitions to speccing and appends feedback', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'state/requirements'), { recursive: true });
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-9.md'),
+    '---\nid: REQ-9\ntitle: T\nstatus: spec_review\npriority: normal\n---\nbody\n\n## Spec\n\nold spec\n',
+  );
+  writeSpec(ws, 'REQ-9', 'tweaked spec', { mode: 'revise', feedback: 'tighter scope please' });
+  const text = readFileSync(join(ws, 'state/requirements/REQ-9.md'), 'utf-8');
+  assert.match(text, /status: speccing/);
+  assert.match(text, /## Spec\n\ntweaked spec/);
+  assert.match(text, /## Spec feedback \(.*\)\n\ntighter scope please/);
+});
+
+test('writeSpec: revise with empty specText keeps the existing Spec section', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'state/requirements'), { recursive: true });
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-10.md'),
+    '---\nid: REQ-10\ntitle: T\nstatus: spec_review\npriority: normal\n---\nbody\n\n## Spec\n\nkeep me untouched\n',
+  );
+  writeSpec(ws, 'REQ-10', '', { mode: 'revise', feedback: 'needs more detail' });
+  const text = readFileSync(join(ws, 'state/requirements/REQ-10.md'), 'utf-8');
+  assert.match(text, /## Spec\n\nkeep me untouched/);
+  assert.match(text, /status: speccing/);
+  assert.match(text, /## Spec feedback \(.*\)\n\nneeds more detail/);
+});
+
+test('writeSpec: approve (or revise) on a requirement not awaiting spec review throws — kills stale double-applies', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'state/requirements'), { recursive: true });
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-11.md'),
+    '---\nid: REQ-11\ntitle: T\nstatus: planning\npriority: normal\n---\nbody\n',
+  );
+  assert.throws(() => writeSpec(ws, 'REQ-11', 'x', { mode: 'approve' }), /not awaiting spec review/);
+  assert.throws(() => writeSpec(ws, 'REQ-11', 'x', { mode: 'revise', feedback: 'y' }), /not awaiting spec review/);
+});
+
+test('ackFeaturePr: sets feature_pr_ack and readWorkspaceStatus reflects it; throws without feature_pr', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'state/requirements'), { recursive: true });
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-12.md'),
+    '---\nid: REQ-12\ntitle: Feature\nstatus: done\npriority: normal\nfeature_pr: https://github.com/x/y/pull/1\n---\nbody\n',
+  );
+  ackFeaturePr(ws, 'REQ-12');
+  let text = readFileSync(join(ws, 'state/requirements/REQ-12.md'), 'utf-8');
+  assert.match(text, /^feature_pr_ack: true$/m);
+  let snap = readWorkspaceStatus(ws);
+  assert.equal(snap.requirements.find((r) => r.id === 'REQ-12').featurePrAck, true);
+
+  // idempotent — a second call doesn't duplicate the flag
+  ackFeaturePr(ws, 'REQ-12');
+  text = readFileSync(join(ws, 'state/requirements/REQ-12.md'), 'utf-8');
+  assert.equal((text.match(/feature_pr_ack: true/g) ?? []).length, 1);
+
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-13.md'),
+    '---\nid: REQ-13\ntitle: No PR\nstatus: planned\npriority: normal\n---\nbody\n',
+  );
+  assert.throws(() => ackFeaturePr(ws, 'REQ-13'), /has no feature_pr/);
+  assert.throws(() => ackFeaturePr(ws, 'bad id!'), /invalid requirement id/);
+  assert.throws(() => ackFeaturePr(ws, 'REQ-99'), /not found/);
 });

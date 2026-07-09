@@ -85,7 +85,8 @@ var require_state_files = __commonJS({
         status: String(attrs.status ?? ""),
         priority: String(attrs.priority ?? "normal"),
         spec: specSection(body),
-        featurePr: attrs.feature_pr == null ? null : String(attrs.feature_pr)
+        featurePr: attrs.feature_pr == null ? null : String(attrs.feature_pr),
+        featurePrAck: attrs.feature_pr_ack === true
       }));
       const stories = readMdDir(join2(wsPath, "state", "stories")).map(({ attrs, body }) => ({
         id: String(attrs.id ?? ""),
@@ -130,6 +131,11 @@ var require_state_files = __commonJS({
     }
     var QUESTION_NAME_RE = /^[\w][\w.\- ]*$/;
     var REQ_ID_RE2 = /^[A-Z][A-Z0-9-]{1,31}$/;
+    function splitFrontmatter(raw, label) {
+      const end = raw.startsWith("---") ? raw.indexOf("\n---", 3) : -1;
+      if (end === -1) throw new Error(`${label} has no frontmatter`);
+      return { head: raw.slice(0, end + 4), rest: raw.slice(end + 4) };
+    }
     function specSection(body) {
       const m = body.match(/## Spec\n([\s\S]*?)(?=\n## |$)/);
       return m ? m[1].trim() : "";
@@ -157,13 +163,14 @@ var require_state_files = __commonJS({
       const p = join2(wsPath, "questions", file);
       if (!existsSync2(p)) throw new Error(`question not found: ${file}`);
       const raw = readFileSync2(p, "utf-8");
-      if (!/^status: open$/m.test(raw)) throw new Error(`question already answered: ${file}`);
-      const updated = raw.replace(/^status: open$/m, "status: answered") + `
+      const { head, rest } = splitFrontmatter(raw, `question ${file}`);
+      if (!/^status: open$/m.test(head)) throw new Error(`question already answered: ${file}`);
+      const newHead = head.replace(/^status: open$/m, "status: answered");
+      writeFileSync2(p, newHead + rest + `
 ## Answer
 
 ${text.trim()}
-`;
-      writeFileSync2(p, updated);
+`);
     }
     function writeSpec2(wsPath, reqId, specText, opts) {
       if (typeof reqId !== "string" || !REQ_ID_RE2.test(reqId)) {
@@ -171,33 +178,54 @@ ${text.trim()}
       }
       const p = join2(wsPath, "state", "requirements", `${reqId}.md`);
       if (!existsSync2(p)) throw new Error(`requirement not found: ${reqId}`);
-      let raw = readFileSync2(p, "utf-8");
+      const raw = readFileSync2(p, "utf-8");
+      let { head, rest } = splitFrontmatter(raw, `requirement ${reqId}`);
+      const statusMatch = head.match(/^status: (.*)$/m);
+      if (!statusMatch || statusMatch[1].trim() !== "spec_review") {
+        throw new Error(`requirement ${reqId} is not awaiting spec review`);
+      }
       const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
-      const spec = `## Spec
+      const text = String(specText ?? "").trim();
+      if (text) {
+        const spec = `## Spec
 
-${specText.trim()}
+${text}
 `;
-      raw = /## Spec\n/.test(raw) ? raw.replace(/## Spec\n[\s\S]*?(?=\n## |$)/, spec) : `${raw.trimEnd()}
+        rest = /## Spec\n/.test(rest) ? rest.replace(/## Spec\n[\s\S]*?(?=\n## |$)/, spec) : `${rest.trimEnd()}
 
 ${spec}`;
+      }
       if (opts.mode === "approve") {
-        raw = raw.replace(/^status: .*$/m, "status: planning");
-        if (!/^spec_approved_at: /m.test(raw)) {
-          raw = raw.replace(/^status: planning$/m, `status: planning
+        head = head.replace(/^status: .*$/m, "status: planning");
+        if (!/^spec_approved_at: /m.test(head)) {
+          head = head.replace(/^status: planning$/m, `status: planning
 spec_approved_at: ${ts}`);
         }
       } else {
-        raw = raw.replace(/^status: .*$/m, "status: speccing");
-        raw = `${raw.trimEnd()}
+        head = head.replace(/^status: .*$/m, "status: speccing");
+        rest = `${rest.trimEnd()}
 
 ## Spec feedback (${ts})
 
 ${String(opts.feedback ?? "").trim()}
 `;
       }
-      writeFileSync2(p, raw);
+      writeFileSync2(p, head + rest);
     }
-    module2.exports = { parseFrontmatter: parseFrontmatter2, readWorkspaceStatus: readWorkspaceStatus2, pidAlive: pidAlive2, dismissAttention: dismissAttention2, answerQuestion: answerQuestion2, writeSpec: writeSpec2 };
+    function ackFeaturePr2(wsPath, reqId) {
+      if (typeof reqId !== "string" || !REQ_ID_RE2.test(reqId)) {
+        throw new Error(`invalid requirement id: ${reqId}`);
+      }
+      const p = join2(wsPath, "state", "requirements", `${reqId}.md`);
+      if (!existsSync2(p)) throw new Error(`requirement not found: ${reqId}`);
+      const raw = readFileSync2(p, "utf-8");
+      const { head, rest } = splitFrontmatter(raw, `requirement ${reqId}`);
+      if (!/^feature_pr: /m.test(head)) throw new Error(`requirement ${reqId} has no feature_pr`);
+      if (/^feature_pr_ack: true$/m.test(head)) return;
+      const newHead = head.replace(/\n---$/, "\nfeature_pr_ack: true\n---");
+      writeFileSync2(p, newHead + rest);
+    }
+    module2.exports = { parseFrontmatter: parseFrontmatter2, readWorkspaceStatus: readWorkspaceStatus2, pidAlive: pidAlive2, dismissAttention: dismissAttention2, answerQuestion: answerQuestion2, writeSpec: writeSpec2, ackFeaturePr: ackFeaturePr2 };
   }
 });
 
@@ -7781,7 +7809,7 @@ var require_workspace = __commonJS({
         name,
         url: r?.url ?? "",
         default_branch: r?.default_branch ?? "main",
-        integration: r?.integration === "merge" ? "merge" : "pr",
+        integration: ["merge", "feature-pr"].includes(r?.integration) ? r.integration : "pr",
         test_command: r?.test_command ?? ""
       }));
       const extra = {};
@@ -7833,8 +7861,8 @@ var require_workspace = __commonJS({
         if (!r?.name || !NAME_RE.test(r.name)) errors.push(`repo name "${r?.name ?? ""}" is invalid`);
         if (!r?.url) errors.push(`repo ${r?.name ?? "?"}: url is required`);
         else if (r.url.startsWith("-")) errors.push(`repo ${r?.name ?? "?"}: url must not start with "-"`);
-        if (r?.integration !== "pr" && r?.integration !== "merge") {
-          errors.push(`repo ${r?.name ?? "?"}: integration must be "pr" or "merge"`);
+        if (!["pr", "merge", "feature-pr"].includes(r?.integration)) {
+          errors.push(`repo ${r?.name ?? "?"}: integration must be "pr", "merge", or "feature-pr"`);
         }
         if (!r?.default_branch || r.default_branch.startsWith("-")) {
           errors.push(`repo ${r?.name ?? "?"}: default_branch is invalid`);
@@ -7860,7 +7888,8 @@ var require_workspace = __commonJS({
       "repos",
       "worktrees",
       "logs",
-      ".claude"
+      ".claude",
+      "questions"
     ];
     async function syncRepos2(wsPath, config, runGit) {
       const clones = [];
@@ -7885,6 +7914,14 @@ var require_workspace = __commonJS({
       );
       return true;
     }
+    function ensureAgentSettings2(wsPath) {
+      const dir = join2(wsPath, ".claude");
+      const file = join2(dir, "settings.local.json");
+      if (existsSync2(file)) return false;
+      mkdirSync2(dir, { recursive: true });
+      writeFileSync2(file, '{"enableAllProjectMcpServers": true}\n');
+      return true;
+    }
     async function scaffoldWorkspace2({ root, name, config, seanceRepo, runGit }) {
       if (typeof name !== "string" || !NAME_RE.test(name)) {
         throw new Error(`invalid workspace name "${name}" \u2014 letters, digits, . _ - only`);
@@ -7898,6 +7935,7 @@ var require_workspace = __commonJS({
       for (const d of CONTRACT_DIRS) mkdirSync2(join2(wsPath, d), { recursive: true });
       writeFileSync2(join2(wsPath, "config.yaml"), configToYaml2({ ...config, workspace: name }));
       ensureMcpConfig2(wsPath);
+      ensureAgentSettings2(wsPath);
       try {
         symlinkSync(skillsSrc, join2(wsPath, ".claude", "skills"));
       } catch (e) {
@@ -7906,7 +7944,7 @@ var require_workspace = __commonJS({
       const clones = await syncRepos2(wsPath, config, runGit);
       return { wsPath, clones };
     }
-    module2.exports = { NAME_RE, parseConfig: parseConfig2, configToYaml: configToYaml2, validateConfigModel: validateConfigModel2, scaffoldWorkspace: scaffoldWorkspace2, syncRepos: syncRepos2, ensureMcpConfig: ensureMcpConfig2 };
+    module2.exports = { NAME_RE, parseConfig: parseConfig2, configToYaml: configToYaml2, validateConfigModel: validateConfigModel2, scaffoldWorkspace: scaffoldWorkspace2, syncRepos: syncRepos2, ensureMcpConfig: ensureMcpConfig2, ensureAgentSettings: ensureAgentSettings2 };
   }
 });
 
@@ -7926,12 +7964,12 @@ var {
 } = require("node:fs");
 var { homedir } = require("node:os");
 var { join, resolve } = require("node:path");
-var { readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec } = require_state_files();
+var { readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec, ackFeaturePr } = require_state_files();
 var { parseFrontmatter } = require_state_files();
 var { buildActivity } = require_activity();
 var { createChat } = require_chat();
 var { withClaudePath } = require_spawn_env();
-var { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos, ensureMcpConfig } = require_workspace();
+var { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos, ensureMcpConfig, ensureAgentSettings } = require_workspace();
 var SEANCE_ROOT = join(homedir(), "seance");
 var DEFAULT_SEANCE_REPO = join(homedir(), "development", "nikrich", "seance");
 var REQ_ID_RE = /^[A-Z][A-Z0-9-]{1,31}$/;
@@ -8039,6 +8077,11 @@ ${body.trim()}
     if (typeof feedback !== "string" || !feedback.trim()) throw new Error("feedback required");
     writeSpec(ws, reqId, String(specText ?? ""), { mode: "revise", feedback });
     wakeHeartbeat(ctx, ws);
+    return { ok: true };
+  });
+  ctx.ipc.handle("feature-pr:ack", (wsPath, reqId) => {
+    const ws = assertWorkspace(wsPath);
+    ackFeaturePr(ws, reqId);
     return { ok: true };
   });
   ctx.ipc.handle("steer", (wsPath, text) => {
@@ -8241,6 +8284,7 @@ ${body.trim()}
     if (errors.length > 0) throw new Error(errors.join("; "));
     writeFileSync(join(ws, "config.yaml"), configToYaml(model));
     ensureMcpConfig(ws);
+    ensureAgentSettings(ws);
     return { clones: await syncRepos(ws, model, runGit) };
   });
   ctx.ipc.handle("watch:stop", (wsPath) => {

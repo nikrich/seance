@@ -266,7 +266,7 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'end' }}>
                 <Field theme={theme} label="integration">
-                  <Segmented theme={theme} value={r.integration} options={['pr', 'merge']} onChange={(v) => setRepo(i, { integration: v })} disabled={busy} />
+                  <Segmented theme={theme} value={r.integration} options={['pr', 'merge', 'feature-pr']} onChange={(v) => setRepo(i, { integration: v })} disabled={busy} />
                 </Field>
                 <Field theme={theme} label="test command (critic runs this on every verdict)">
                   <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }} placeholder="npm test"
@@ -541,7 +541,7 @@ function QuestionCard({ theme, api, ws, act, q }) {
 function WaitingOnYou({ theme, api, ws, act, snap }) {
   const specs = (snap?.requirements ?? []).filter((r) => r.status === 'spec_review');
   const questions = snap?.questions ?? [];
-  const prs = (snap?.requirements ?? []).filter((r) => r.featurePr && r.status === 'done');
+  const prs = (snap?.requirements ?? []).filter((r) => r.featurePr && r.status === 'done' && !r.featurePrAck);
   const count = specs.length + questions.length + prs.length;
   if (count === 0) return null;
   return (
@@ -562,6 +562,7 @@ function WaitingOnYou({ theme, api, ws, act, snap }) {
           <span style={{ color: theme.ink0, fontWeight: 600 }}>{r.id}</span>
           <span style={{ color: theme.ink1, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title} — feature complete, one PR awaits your merge</span>
           <Btn theme={theme} variant="ghost" onClick={() => api.openExternal(r.featurePr)}>open PR</Btn>
+          <Btn theme={theme} variant="ghost" onClick={() => act(() => api.ipc.invoke('feature-pr:ack', ws, r.id))}>dismiss</Btn>
         </div>
       ))}
     </div>
