@@ -164,6 +164,226 @@ function Panel({ theme, title, subtitle, action, children, style }) {
   );
 }
 
+// ---- workspace config form ----------------------------------------------
+
+const BLANK_REPO = { name: '', url: '', default_branch: 'main', integration: 'pr', test_command: '' };
+const BLANK_CONFIG = {
+  workspace: '',
+  repos: [{ ...BLANK_REPO }],
+  max_builders: 3, max_critics: 2, max_planner: 1, max_agent_minutes: 45, attempt_cap: 3,
+  models: { manager: 'haiku', planner: 'opus', builder: 'sonnet', critic: 'opus' },
+  sleep: { active: 60, idle: 600 },
+};
+const MODEL_OPTIONS = ['haiku', 'sonnet', 'opus'];
+const repoNameFromUrl = (url) => (url.split('/').pop() ?? '').replace(/\.git$/, '').trim();
+
+function Field({ theme, label, children, width }) {
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 5, width, minWidth: 0 }}>
+      <Eyebrow theme={theme}>{label}</Eyebrow>
+      {children}
+    </label>
+  );
+}
+
+function Segmented({ theme, value, options, onChange }) {
+  return (
+    <div style={{ display: 'inline-flex', gap: 3, padding: 3, background: theme.paper, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rSm }}>
+      {options.map((o) => {
+        const on = value === o;
+        return (
+          <button key={o} type="button" onClick={() => onChange(o)} style={{
+            padding: '5px 11px', borderRadius: 4, cursor: 'pointer', border: 'none',
+            background: on ? theme.neonMist : 'transparent',
+            color: on ? theme.neonInk : theme.ink2,
+            fontFamily: theme.fontMono, fontSize: 11, fontWeight: on ? 600 : 500,
+          }}>{o}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubmit }) {
+  const [cfg, setCfg] = useState(initial ?? BLANK_CONFIG);
+  const [name, setName] = useState('');
+  useEffect(() => { if (initial) setCfg(initial); }, [initial]);
+
+  const field = {
+    fontFamily: 'inherit', fontSize: 13, color: theme.ink0,
+    background: theme.paper, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rSm,
+    padding: '8px 11px', outline: 'none', width: '100%', boxSizing: 'border-box',
+  };
+  const numField = { ...field, fontFamily: theme.fontMono, fontSize: 12 };
+  const set = (patch) => setCfg((c) => ({ ...c, ...patch }));
+  const setRepo = (i, patch) => setCfg((c) => ({ ...c, repos: c.repos.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
+  const num = (v) => { const n = parseInt(v, 10); return Number.isNaN(n) ? 0 : n; };
+
+  const clientErrors = [];
+  if (mode === 'create' && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) clientErrors.push('workspace name: letters, digits, . _ - only');
+  if (!cfg.repos.some((r) => r.url.trim())) clientErrors.push('at least one repo with a url');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
+      {mode === 'create' && (
+        <Panel theme={theme} title="workspace" subtitle="lives under ~/seance/<name>">
+          <Field theme={theme} label="name">
+            <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12, maxWidth: 280 }} placeholder="my-project"
+              value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
+          </Field>
+        </Panel>
+      )}
+
+      <Panel theme={theme} title="repos" subtitle="the fleet works these"
+        action={<Btn theme={theme} variant="ghost" disabled={busy}
+          onClick={() => set({ repos: [...cfg.repos, { ...BLANK_REPO }] })}>+ add repo</Btn>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {cfg.repos.map((r, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 12, borderBottom: i < cfg.repos.length - 1 ? `1px solid ${theme.hairline}` : 'none' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto auto', gap: 10, alignItems: 'end' }}>
+                <Field theme={theme} label="git url">
+                  <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }} placeholder="git@github.com:you/repo.git"
+                    value={r.url} disabled={busy}
+                    onChange={(e) => {
+                      const url = e.target.value;
+                      const derived = repoNameFromUrl(url);
+                      setRepo(i, { url, ...(r.name === '' || r.name === repoNameFromUrl(r.url) ? { name: derived } : {}) });
+                    }} />
+                </Field>
+                <Field theme={theme} label="name">
+                  <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }} value={r.name} disabled={busy}
+                    onChange={(e) => setRepo(i, { name: e.target.value })} />
+                </Field>
+                <Field theme={theme} label="branch">
+                  <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12, width: 110 }} value={r.default_branch} disabled={busy}
+                    onChange={(e) => setRepo(i, { default_branch: e.target.value })} />
+                </Field>
+                <button type="button" title="remove repo" disabled={busy || cfg.repos.length === 1}
+                  onClick={() => set({ repos: cfg.repos.filter((_, j) => j !== i) })}
+                  style={{ background: 'transparent', border: 'none', color: theme.ink3, cursor: cfg.repos.length === 1 ? 'not-allowed' : 'pointer', padding: 6 }}>
+                  <X size={14} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'end' }}>
+                <Field theme={theme} label="integration">
+                  <Segmented theme={theme} value={r.integration} options={['pr', 'merge']} onChange={(v) => setRepo(i, { integration: v })} />
+                </Field>
+                <Field theme={theme} label="test command (critic runs this on every verdict)">
+                  <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }} placeholder="npm test"
+                    value={r.test_command} disabled={busy} onChange={(e) => setRepo(i, { test_command: e.target.value })} />
+                </Field>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <Panel theme={theme} title="limits" subtitle="fleet size & safety rails">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+            {[['max_builders', 'builders'], ['max_critics', 'critics'], ['max_planner', 'planners'], ['max_agent_minutes', 'agent minutes'], ['attempt_cap', 'attempt cap']].map(([k, label]) => (
+              <Field key={k} theme={theme} label={label}>
+                <input type="number" min="1" style={numField} value={cfg[k]} disabled={busy}
+                  onChange={(e) => set({ [k]: num(e.target.value) })} />
+              </Field>
+            ))}
+          </div>
+        </Panel>
+        <Panel theme={theme} title="models & cadence" subtitle="claude aliases · heartbeat sleep">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+            {['manager', 'planner', 'builder', 'critic'].map((role) => (
+              <Field key={role} theme={theme} label={role}>
+                <select style={{ ...numField, cursor: 'pointer' }} value={cfg.models[role]} disabled={busy}
+                  onChange={(e) => set({ models: { ...cfg.models, [role]: e.target.value } })}>
+                  {MODEL_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </Field>
+            ))}
+            <Field theme={theme} label="active sleep (s)">
+              <input type="number" min="1" style={numField} value={cfg.sleep.active} disabled={busy}
+                onChange={(e) => set({ sleep: { ...cfg.sleep, active: num(e.target.value) } })} />
+            </Field>
+            <Field theme={theme} label="idle sleep (s)">
+              <input type="number" min="1" style={numField} value={cfg.sleep.idle} disabled={busy}
+                onChange={(e) => set({ sleep: { ...cfg.sleep, idle: num(e.target.value) } })} />
+            </Field>
+          </div>
+        </Panel>
+      </div>
+
+      {(error || clientErrors.length > 0) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`, borderRadius: theme.rMd, padding: '9px 13px', fontSize: 12.5, color: theme.pillOxbloodFg }}>
+          <AlertTriangle size={14} color={theme.oxblood} style={{ flexShrink: 0 }} />
+          <span>{error ?? clientErrors.join(' · ')}</span>
+        </div>
+      )}
+
+      {cloneResults?.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {cloneResults.map((c) => (
+            <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: theme.fontMono, fontSize: 11.5, color: c.ok ? theme.pillMossFg : theme.pillOxbloodFg }}>
+              {c.ok ? <Check size={12} /> : <X size={12} />}
+              <span>{c.name}</span>
+              {!c.ok && <span style={{ color: theme.ink2, overflowWrap: 'anywhere' }}>— {c.error} (check ssh keys / gh auth, then save to retry)</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {busy && (
+          <span style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.ink2, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span className="seance-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: theme.neon }} />
+            {mode === 'create' ? 'summoning workspace… cloning repos can take a minute' : 'saving…'}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <Btn theme={theme} variant="primary" icon={<Sparkles size={13} />} disabled={busy || clientErrors.length > 0}
+          onClick={() => onSubmit(mode === 'create' ? { name, config: cfg } : { config: cfg })}>
+          {mode === 'create' ? 'create workspace' : 'save config'}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+function ConfigTab({ theme, api, ws }) {
+  const [initial, setInitial] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [cloneResults, setCloneResults] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    setInitial(null); setError(null); setCloneResults(null); setSavedAt(null);
+    api.ipc.invoke('workspace:config:read', ws).then(setInitial).catch((e) => setError(String(e?.message ?? e)));
+  }, [api, ws]);
+
+  if (!initial && !error) return <SkeletonNote theme={theme} text="reading config…" />;
+  return (
+    <div style={{ overflowY: 'auto', minHeight: 0, paddingBottom: 4 }}>
+      {savedAt && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontFamily: theme.fontMono, fontSize: 11.5, color: theme.pillMossFg }}>
+          <Check size={12} /> config saved
+        </div>
+      )}
+      <WorkspaceForm theme={theme} mode="edit" initial={initial} busy={busy} error={error} cloneResults={cloneResults}
+        onSubmit={async ({ config }) => {
+          setBusy(true); setError(null); setSavedAt(null);
+          try {
+            const r = await api.ipc.invoke('workspace:config:write', ws, config);
+            setCloneResults(r.clones); setSavedAt(Date.now());
+          } catch (e) { setError(String(e?.message ?? e)); }
+          finally { setBusy(false); }
+        }} />
+    </div>
+  );
+}
+
+function SkeletonNote({ theme, text }) {
+  return <div style={{ fontSize: 12, color: theme.ink3, padding: '8px 2px' }}>{text}</div>;
+}
+
 // ---- board -----------------------------------------------------------------
 
 const KIND_ICON = {
@@ -840,9 +1060,10 @@ const TABS = [
   { id: 'board', label: 'board', Icon: LayoutGrid },
   { id: 'hood', label: 'under the hood', Icon: Cpu },
   { id: 'chat', label: 'chat', Icon: MessageSquare },
+  { id: 'config', label: 'config', Icon: Cog },
 ];
 
-function NoWorkspace({ theme }) {
+function NoWorkspace({ theme, onCreate }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40 }}>
       <Ghost size={48} color={theme.ink2} className="seance-float" />
@@ -852,10 +1073,9 @@ function NoWorkspace({ theme }) {
         </div>
         <p style={{ fontSize: 13, color: theme.ink2, lineHeight: 1.5, margin: 0 }}>
           the séance binds to a workspace, opens a worktree per agent, and works the backlog until you call it back.
-          create one under <code style={{ fontFamily: theme.fontMono, fontSize: 12 }}>~/seance/&lt;name&gt;</code> with a{' '}
-          <code style={{ fontFamily: theme.fontMono, fontSize: 12 }}>config.yaml</code> (see the séance README), then reopen this screen.
         </p>
       </div>
+      <Btn theme={theme} variant="primary" icon={<Sparkles size={13} />} onClick={onCreate}>create a workspace</Btn>
     </div>
   );
 }
@@ -870,6 +1090,22 @@ function App({ api }) {
   const [steerText, setSteerText] = useState('');
   const [notice, setNotice] = useState(null);
   const [tab, setTab] = useState('board');
+  const [creating, setCreating] = useState(false);       // create view open?
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState(null);
+  const [createClones, setCreateClones] = useState(null);
+
+  const createWorkspace = async ({ name, config }) => {
+    setCreateBusy(true); setCreateError(null);
+    try {
+      const r = await api.ipc.invoke('workspace:create', name, config);
+      setCreateClones(r.clones);
+      const list = await api.ipc.invoke('workspaces:list');
+      setWorkspaces(list);
+      setSnap(null); setWs(r.wsPath); setCreating(false); setTab('board');
+    } catch (e) { setCreateError(String(e?.message ?? e)); }
+    finally { setCreateBusy(false); }
+  };
 
   const refresh = useCallback(async (path) => {
     if (!path) return;
@@ -950,6 +1186,9 @@ function App({ api }) {
             </select>
           </span>
         )}
+        {workspaces !== null && (
+          <Btn theme={theme} variant="ghost" onClick={() => setCreating(true)}>+ new</Btn>
+        )}
         {!noWorkspace && snap && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: theme.fontMono, fontSize: 11, color: healthy ? theme.ink2 : theme.pillOxbloodFg }}>
             <span
@@ -967,8 +1206,18 @@ function App({ api }) {
         )}
       </div>
 
-      {noWorkspace ? (
-        <NoWorkspace theme={theme} />
+      {creating ? (
+        <div style={{ overflowY: 'auto', minHeight: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <Eyebrow theme={theme}>new workspace</Eyebrow>
+            <span style={{ flex: 1 }} />
+            <Btn theme={theme} variant="ghost" disabled={createBusy} onClick={() => setCreating(false)}>cancel</Btn>
+          </div>
+          <WorkspaceForm theme={theme} mode="create" busy={createBusy} error={createError}
+            cloneResults={createClones} onSubmit={createWorkspace} />
+        </div>
+      ) : noWorkspace ? (
+        <NoWorkspace theme={theme} onCreate={() => setCreating(true)} />
       ) : (
         <>
           {/* tabs */}
@@ -1014,6 +1263,7 @@ function App({ api }) {
           )}
           {tab === 'hood' && ws && <UnderTheHood theme={theme} api={api} ws={ws} />}
           {tab === 'chat' && ws && <Chat api={api} ws={ws} theme={theme} />}
+          {tab === 'config' && ws && <ConfigTab theme={theme} api={api} ws={ws} />}
         </>
       )}
     </div>
