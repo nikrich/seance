@@ -3,7 +3,7 @@
 // repo README. Yaml-lite frontmatter: scalars, inline arrays, quoted strings —
 // exactly what séance state files use, nothing more.
 
-const { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } = require('node:fs');
+const { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 function parseScalar(raw) {
@@ -84,11 +84,13 @@ function lastTickTs(wsPath) {
 }
 
 function readWorkspaceStatus(wsPath) {
-  const requirements = readMdDir(join(wsPath, 'state', 'requirements')).map(({ attrs }) => ({
+  const requirements = readMdDir(join(wsPath, 'state', 'requirements')).map(({ attrs, body }) => ({
     id: String(attrs.id ?? ''),
     title: String(attrs.title ?? ''),
     status: String(attrs.status ?? ''),
     priority: String(attrs.priority ?? 'normal'),
+    spec: specSection(body),
+    featurePr: attrs.feature_pr == null ? null : String(attrs.feature_pr),
   }));
 
   const stories = readMdDir(join(wsPath, 'state', 'stories')).map(({ attrs, body }) => ({
@@ -137,7 +139,7 @@ function readWorkspaceStatus(wsPath) {
           };
         });
 
-  return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts };
+  return { requirements, stories, agents, attention, inbox, lastTickTs: lastTickTs(wsPath), backlogCounts, questions: readQuestions(wsPath) };
 }
 
 // A human "resolving" an attention item = moving it out of attention/ so the
@@ -154,4 +156,71 @@ function dismissAttention(wsPath, name) {
   renameSync(src, join(dismissedDir, name));
 }
 
-module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive, dismissAttention };
+const QUESTION_NAME_RE = /^[\w][\w.\- ]*$/;
+const REQ_ID_RE = /^[A-Z][A-Z0-9-]{1,31}$/;
+
+function specSection(body) {
+  // stops at the next h2 (## Answer, ## Spec feedback, …) but not at the
+  // spec's own ### subheadings
+  const m = body.match(/## Spec\n([\s\S]*?)(?=\n## |$)/);
+  return m ? m[1].trim() : '';
+}
+
+function readQuestions(wsPath) {
+  const dir = join(wsPath, 'questions');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.md'))
+    .sort()
+    .map((f) => {
+      const { attrs, body } = parseFrontmatter(readFileSync(join(dir, f), 'utf-8'));
+      const q = body.match(/## Question\n([\s\S]*?)(?=\n## Answer|$)/);
+      return {
+        file: f,
+        id: String(attrs.id ?? f.replace(/\.md$/, '')),
+        story: attrs.story == null ? null : String(attrs.story),
+        requirement: attrs.requirement == null ? null : String(attrs.requirement),
+        status: String(attrs.status ?? 'open'),
+        question: q ? q[1].trim() : body.trim(),
+      };
+    })
+    .filter((q) => q.status === 'open');
+}
+
+function answerQuestion(wsPath, file, text) {
+  if (typeof file !== 'string' || !QUESTION_NAME_RE.test(file) || file.includes('..')) {
+    throw new Error(`invalid question file: ${file}`);
+  }
+  const p = join(wsPath, 'questions', file);
+  if (!existsSync(p)) throw new Error(`question not found: ${file}`);
+  const raw = readFileSync(p, 'utf-8');
+  if (!/^status: open$/m.test(raw)) throw new Error(`question already answered: ${file}`);
+  const updated = raw.replace(/^status: open$/m, 'status: answered') + `\n## Answer\n\n${text.trim()}\n`;
+  writeFileSync(p, updated);
+}
+
+function writeSpec(wsPath, reqId, specText, opts) {
+  if (typeof reqId !== 'string' || !REQ_ID_RE.test(reqId)) {
+    throw new Error(`invalid requirement id: ${reqId}`);
+  }
+  const p = join(wsPath, 'state', 'requirements', `${reqId}.md`);
+  if (!existsSync(p)) throw new Error(`requirement not found: ${reqId}`);
+  let raw = readFileSync(p, 'utf-8');
+  const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const spec = `## Spec\n\n${specText.trim()}\n`;
+  raw = /## Spec\n/.test(raw)
+    ? raw.replace(/## Spec\n[\s\S]*?(?=\n## |$)/, spec)
+    : `${raw.trimEnd()}\n\n${spec}`;
+  if (opts.mode === 'approve') {
+    raw = raw.replace(/^status: .*$/m, 'status: planning');
+    if (!/^spec_approved_at: /m.test(raw)) {
+      raw = raw.replace(/^status: planning$/m, `status: planning\nspec_approved_at: ${ts}`);
+    }
+  } else {
+    raw = raw.replace(/^status: .*$/m, 'status: speccing');
+    raw = `${raw.trimEnd()}\n\n## Spec feedback (${ts})\n\n${String(opts.feedback ?? '').trim()}\n`;
+  }
+  writeFileSync(p, raw);
+}
+
+module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec };
