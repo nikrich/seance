@@ -317,6 +317,20 @@ var require_chat = __commonJS({
   }
 });
 
+// src/lib/spawn-env.cjs
+var require_spawn_env = __commonJS({
+  "src/lib/spawn-env.cjs"(exports2, module2) {
+    "use strict";
+    function withClaudePath2(env = process.env) {
+      const home = env.HOME ?? "";
+      const current = (env.PATH ?? "").split(":").filter(Boolean);
+      const missing = ["/opt/homebrew/bin", "/usr/local/bin", home && `${home}/.local/bin`].filter(Boolean).filter((dir) => !current.includes(dir));
+      return { ...env, PATH: [...missing, ...current].join(":") };
+    }
+    module2.exports = { withClaudePath: withClaudePath2 };
+  }
+});
+
 // src/main.cjs
 var { execFile, spawn } = require("node:child_process");
 var {
@@ -337,6 +351,7 @@ var { readWorkspaceStatus, pidAlive } = require_state_files();
 var { parseFrontmatter } = require_state_files();
 var { buildActivity } = require_activity();
 var { createChat } = require_chat();
+var { withClaudePath } = require_spawn_env();
 var SEANCE_ROOT = join(homedir(), "seance");
 var DEFAULT_SEANCE_REPO = join(homedir(), "development", "nikrich", "seance");
 var REQ_ID_RE = /^[A-Z][A-Z0-9-]{1,31}$/;
@@ -434,7 +449,8 @@ ${body.trim()}
     const out = openSync(join(ws, "logs", "heartbeat-plugin.log"), "a");
     const child = spawn("bash", [script, ws], {
       detached: true,
-      stdio: ["ignore", out, out]
+      stdio: ["ignore", out, out],
+      env: withClaudePath()
     });
     child.unref();
     const hb = readHeartbeats(ctx);
@@ -550,7 +566,7 @@ ${body.trim()}
       execFile(
         "claude",
         args,
-        { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
+        { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, env: withClaudePath() },
         (err, stdout, stderr) => {
           resolveRun({
             code: err ? typeof err.code === "number" ? err.code : 1 : 0,

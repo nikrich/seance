@@ -23,6 +23,7 @@ const { readWorkspaceStatus, pidAlive } = require('./lib/state-files.cjs');
 const { parseFrontmatter } = require('./lib/state-files.cjs');
 const { buildActivity } = require('./lib/activity.cjs');
 const { createChat } = require('./lib/chat.cjs');
+const { withClaudePath } = require('./lib/spawn-env.cjs');
 
 const SEANCE_ROOT = join(homedir(), 'seance');
 const DEFAULT_SEANCE_REPO = join(homedir(), 'development', 'nikrich', 'seance');
@@ -129,6 +130,7 @@ function activate(ctx) {
     const child = spawn('bash', [script, ws], {
       detached: true,
       stdio: ['ignore', out, out],
+      env: withClaudePath(),
     });
     child.unref();
     const hb = readHeartbeats(ctx);
@@ -262,7 +264,7 @@ function activate(ctx) {
         execFile(
           'claude',
           args,
-          { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
+          { cwd, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, env: withClaudePath() },
           (err, stdout, stderr) => {
             resolveRun({
               code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
