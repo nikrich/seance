@@ -60,6 +60,13 @@ and never invent an answer to an escalation-worthy question.
 
 ### 1. Set up the worktree (idempotent — retries reuse it)
 
+If your story's requirement has `feature_branch` in its frontmatter
+(feature-pr mode), use that branch as the base instead of
+`<default_branch>` — everywhere `<default_branch>` appears in this step and
+in retry rebases. Same-requirement deps that are `merged` are already in the
+feature branch; step 1b (merging pr_open dep branches) then applies only to
+cross-requirement deps.
+
 ```bash
 if [ ! -d "worktrees/<story-id>" ]; then
   git -C "repos/<repo>" worktree add "../../worktrees/<story-id>" -b "<branch>" "<default_branch>" \

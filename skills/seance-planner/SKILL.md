@@ -77,6 +77,12 @@ Decompose from the approved `## Spec` — it supersedes the raw requirement
 body wherever they differ. Everything below (stories, oracles, deps) is
 unchanged.
 
+If every repo this requirement touches has `integration: feature-pr`:
+create the feature branch once, before writing stories —
+`git -C repos/<repo> branch "seance/<req-id>" "<default_branch>" && git -C repos/<repo> push -u origin "seance/<req-id>"`
+(skip push for local-only repos) — and record `feature_branch: seance/<req-id>`
+in the requirement frontmatter. Stories inherit it implicitly.
+
 ## Story file format
 
 Write each story to `state/stories/<req-id>-s<N>.md` (N = 1, 2, …):

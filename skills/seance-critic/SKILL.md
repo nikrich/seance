@@ -99,6 +99,15 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   ```
   Run `test_command` once more on `default_branch` post-merge. If it fails, revert the merge (`git reset --hard ORIG_HEAD`) and treat as REJECT with the failure output.
 - `pr`: `git push -u origin <branch>` then `gh pr create --fill --head <branch>`; record the PR URL in the ledger.
+- `feature-pr`: merge `--no-ff` into the requirement's `feature_branch` and
+  push it; story `status: merged` (merged-to-feature). Then, if EVERY story
+  of the requirement now has `status: merged`:
+  `gh pr create --fill --base <default_branch> --head <feature_branch>`,
+  record the URL as `feature_pr:` in the requirement frontmatter, and set
+  the requirement `status: done` (the human merges the PR).
+  Conflicts merging into the feature branch: REJECT with report
+  "rebase onto <feature_branch> and resolve conflicts in <files>", exactly
+  like the default_branch conflict rule.
 
 Then: append `### Attempt <N> — approved (<timestamp>)` + one line on what you checked; set story `status: merged` (or `pr_open`); clean up both worktrees (`git worktree remove` yours and the builder's, `--force` if needed) and for `merge` mode delete the story branch (`git branch -d <branch>`). Exit.
 

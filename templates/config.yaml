@@ -7,8 +7,11 @@ repos:
     url: git@github.com:you/example-repo.git
     default_branch: main
     # integration: how approved stories land.
-    #   merge — critic merges --no-ff into default_branch (good for local/unprotected repos)
-    #   pr    — critic opens a PR via `gh pr create` (protected repos)
+    #   merge      — critic merges --no-ff into default_branch (local/unprotected repos)
+    #   pr         — critic opens a PR per story (protected repos, max human control)
+    #   feature-pr — RECOMMENDED for feature autonomy: stories merge automatically
+    #                into a per-requirement branch (seance/<req-id>); ONE PR to
+    #                default_branch when the whole requirement is done.
     integration: pr
     # Full test suite command, run from repo root. Critic runs this on every verdict;
     # planner bases story oracles on it.

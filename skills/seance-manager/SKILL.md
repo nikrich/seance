@@ -71,7 +71,10 @@ For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `ki
 ### 4. Terminal states
 
 - Any story with `attempts >= attempt_cap` and status `pending` → set `blocked`; write `attention/<story-id>.md` containing the story title and its full attempts ledger.
-- Any requirement whose stories all have status `merged` or `pr_open` → set requirement `done`.
+- (integration `merge`/`pr` repos) Any requirement whose stories all have
+  status `merged` or `pr_open` → set requirement `done`.
+- (feature-pr repos) the critic sets the requirement `done` when it opens
+  the feature PR — do not mark it done on story statuses alone.
 
 ### 4b. Process answered questions
 
