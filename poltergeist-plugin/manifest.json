@@ -1,7 +1,7 @@
 {
   "id": "seance",
   "name": "Séance",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Summon autonomous coding sessions and watch them live",
   "apiVersion": 1,
   "icon": "sparkles",
