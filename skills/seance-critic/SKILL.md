@@ -59,6 +59,12 @@ and never invent an answer to an escalation-worthy question.
 
 ## Procedure
 
+If the story's requirement has `feature_branch` in its frontmatter
+(feature-pr mode), use that branch wherever `<default_branch>` appears in
+this skill — the diff under review is story-branch vs `feature_branch`, so
+previously merged sibling stories are NOT part of this story's diff and must
+not be judged as scope creep.
+
 ### 1. Clean checkout
 
 ```bash
@@ -100,7 +106,9 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   ```
   Run `test_command` once more on `default_branch` post-merge. If it fails, revert the merge (`git reset --hard ORIG_HEAD`) and treat as REJECT with the failure output.
 - `pr`: `git push -u origin <branch>` then `gh pr create --fill --head <branch>`; record the PR URL in the ledger.
-- `feature-pr`: merge `--no-ff` into the requirement's `feature_branch` and
+- `feature-pr`: if the requirement's frontmatter has no `feature_branch`,
+  fall back to the `pr` bullet above instead. Otherwise: merge `--no-ff`
+  into the requirement's `feature_branch` and
   push it; story `status: merged` (merged-to-feature). Then, if EVERY story
   of the requirement now has `status: merged`:
   `gh pr create --fill --base <default_branch> --head <feature_branch>`,

@@ -7,7 +7,7 @@ description: Use ONLY when invoked as the Séance planner for a specific require
 
 ## YOU MUST / YOU MUST NOT
 
-- **YOU MUST NOT** write or edit any code. You write only `state/stories/*.md`, the requirement's frontmatter, and (on failure) one `attention/` file.
+- **YOU MUST NOT** write or edit any code. You write only `state/stories/*.md`, the requirement's frontmatter, the requirement's `## Spec` section (Phase A's output), `questions/*.md` (the knowledge chain's escalation), and (on failure) one `attention/` file.
 - **YOU MUST NOT** create a story without an `oracle` — an executable shell command, runnable from that repo's root, that fails now and will pass when the story is done. Verify the tooling it relies on actually exists in the repo (test runner configured, script present) before writing it. If you cannot construct a real oracle, the requirement is unplannable (see below).
 - **YOU MUST** plan exactly the requirement you were invoked for, then exit. Do not pick up other requirements, do not implement anything, do not spawn processes.
 - Stories must be the **smallest independently-mergeable units**. A story that can't be merged on its own without breaking `default_branch` is two stories or has a missing `deps` edge.
@@ -83,6 +83,10 @@ create the feature branch once, before writing stories —
 (skip push for local-only repos) — and record `feature_branch: seance/<req-id>`
 in the requirement frontmatter. Stories inherit it implicitly.
 
+If the requirement's repos mix `feature-pr` with other integration modes, do
+not create a feature branch: write `attention/<req-id>.md` naming the
+mixed-mode conflict, and proceed with per-repo integration as configured.
+
 ## Story file format
 
 Write each story to `state/stories/<req-id>-s<N>.md` (N = 1, 2, …):
@@ -120,7 +124,7 @@ Name relevant files/modules you found while reading the repo.>
 
 ## Unplannable requirements
 
-If the requirement is too ambiguous, needs access you don't have, or no honest oracle is constructible (e.g. repo has no test infrastructure): write `attention/<req-id>.md` explaining precisely what a human must provide, set the requirement's frontmatter to `status: inbox` plus `blocked_reason: <one line>`, and exit. Never invent a fake oracle to get unblocked.
+If the requirement is too ambiguous, needs access you don't have, or no honest oracle is constructible (e.g. repo has no test infrastructure): write `attention/<req-id>.md` explaining precisely what a human must provide, set the requirement's frontmatter to `status: speccing` plus `blocked_reason: <one line>`, and exit. Never invent a fake oracle to get unblocked.
 
 ## Finish
 

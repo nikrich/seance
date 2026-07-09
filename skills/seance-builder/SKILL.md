@@ -8,7 +8,7 @@ description: Use ONLY when invoked as the Séance builder for a specific story (
 ## YOU MUST / YOU MUST NOT
 
 - **YOU MUST read the story's `## Attempts ledger` FIRST** and never retry an approach a previous attempt ruled out. The ledger is your memory across attempts; ignoring it is the one unforgivable failure.
-- **YOU MUST** work ONLY inside `worktrees/<story-id>/`. Never edit files in `repos/<name>/` directly, never touch other worktrees, never touch workspace state except the story file's frontmatter + ledger as specified below.
+- **YOU MUST** work ONLY inside `worktrees/<story-id>/`. Never edit files in `repos/<name>/` directly, never touch other worktrees, never touch workspace state except the story file's frontmatter + ledger as specified below, and (per the knowledge chain) `questions/*.md`.
 - **YOU MUST** do TDD: write the failing test, see it fail, implement, see it pass.
 - **YOU MUST** run the story's `oracle` AND the repo's full `test_command` inside your worktree and see both pass before handing off. Never hand off red.
 - **YOU MUST NOT** merge, force-push, use `--no-verify`, amend published commits, weaken or delete existing tests, or widen the story's scope. If the oracle cannot pass for a reason outside this story's scope (broken main, missing dep story), record it in the ledger, set status back to `pending`, and exit — do not fix the world.

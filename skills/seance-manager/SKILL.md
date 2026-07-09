@@ -8,7 +8,7 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 ## YOU MUST / YOU MUST NOT
 
 - **YOU MUST** run exactly one tick, in the order below, then exit. Never loop. Never wait for a spawned process.
-- **YOU MUST NOT** edit, write, or read files inside `repos/` or `worktrees/` — you orchestrate; you never touch code. You may only write under `state/`, `inbox/processed/`, `attention/`, `journal/`, `logs/`, and `next-sleep`.
+- **YOU MUST NOT** edit, write, or read files inside `repos/` or `worktrees/` — you orchestrate; you never touch code. You may only write under `state/`, `inbox/processed/`, `attention/`, `journal/`, `logs/`, `questions/`, and `next-sleep`.
 - **YOU MUST NOT** explore beyond the workspace (cwd). No `find ~`, no reading other skills.
 - **YOU MUST NOT** do the planner's, builder's, or critic's job "quickly yourself" — spawn them.
 - Each step is mechanical. Do not deliberate; execute.
@@ -42,7 +42,7 @@ If `config.yaml` is missing: write `attention/no-config.md` ("workspace has no c
 
 For each `inbox/*.md` (skip directories):
 
-- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: speccing` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead.
+- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: speccing` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead, and clear `blocked_reason` from its frontmatter so it becomes spawnable again.
 - **No `id:` frontmatter** → it's a steering note. Apply it now:
   - "pause repo X" / "resume repo X" → add/remove X in `paused_repos` in `config.yaml`.
   - "priority <req-id> ..." / "<req-id> first" → set that requirement's `priority: high`.
@@ -70,7 +70,7 @@ For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `ki
 
 ### 4. Terminal states
 
-- Any story with `attempts >= attempt_cap` and status `pending` → set `blocked`; write `attention/<story-id>.md` containing the story title and its full attempts ledger.
+- Any story with `attempts >= attempt_cap` and status `pending`, unless a `questions/*.md` with `status: open` names it (it's waiting on the human, not failing) → set `blocked`; write `attention/<story-id>.md` containing the story title and its full attempts ledger.
 - (integration `merge`/`pr` repos) Any requirement whose stories all have
   status `merged` or `pr_open` → set requirement `done`.
 - (feature-pr repos) the critic sets the requirement `done` when it opens
@@ -87,8 +87,7 @@ For each `questions/*.md` with `status: answered`:
   story just gets the ledger entry — its current attempt finishes first.
 - Move the file to `questions/answered/` (create the dir if needed).
 
-A story referenced by any `status: open` question is NOT eligible to spawn
-(add this to the builder-eligibility rule in step 6).
+A story referenced by any `status: open` question is NOT eligible to spawn.
 
 ### 5. Spawn planner
 
@@ -97,7 +96,7 @@ requirement, choosing the prompt by status:
 
 - `status: speccing` (and no `blocked_reason`) → prompt
   `"Invoke the seance-planner skill to DRAFT THE SPEC for requirement <id>."`
-- `status: planning` (spec approved by the human) → prompt
+- `status: planning` (spec approved by the human; and no `blocked_reason`) → prompt
   `"Invoke the seance-planner skill to DECOMPOSE requirement <id> per its approved spec."`
 
 `spec_review` requirements are waiting on the human — never spawn for them.
