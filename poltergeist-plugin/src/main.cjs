@@ -1,7 +1,9 @@
 'use strict';
 // Séance plugin — Poltergeist main-process side.
 // Consumes the Séance workspace file contract (README): writes ONLY to
-// inbox/ (+ this plugin's own dataDir); reads everything else. Heartbeat
+// inbox/ (+ this plugin's own dataDir), plus workspace creation and the
+// config editor (scaffolding new ~/seance/<name> trees and rewriting
+// config.yaml). All other workspace state stays read-only. Heartbeat
 // start/stop is process management, not files.
 
 const { execFile, spawn } = require('node:child_process');
@@ -24,6 +26,7 @@ const { parseFrontmatter } = require('./lib/state-files.cjs');
 const { buildActivity } = require('./lib/activity.cjs');
 const { createChat } = require('./lib/chat.cjs');
 const { withClaudePath } = require('./lib/spawn-env.cjs');
+const { parseConfig, configToYaml, validateConfigModel, scaffoldWorkspace, syncRepos } = require('./lib/workspace.cjs');
 
 const SEANCE_ROOT = join(homedir(), 'seance');
 const DEFAULT_SEANCE_REPO = join(homedir(), 'development', 'nikrich', 'seance');
@@ -288,6 +291,43 @@ function activate(ctx) {
   ctx.ipc.handle('chat:reset', (wsPath) => {
     chatApi.reset(assertWorkspace(wsPath));
     return { ok: true };
+  });
+
+  const runGit = (args) =>
+    new Promise((resolveRun) => {
+      execFile(
+        'git',
+        args,
+        { env: withClaudePath(), timeout: 10 * 60 * 1000, maxBuffer: 10 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          resolveRun({
+            code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
+            stdout: stdout ?? '',
+            stderr: (stderr ?? '') + (err && !stderr ? ` ${err.message}` : ''),
+          });
+        },
+      );
+    });
+
+  ctx.ipc.handle('workspace:create', async (name, model) => {
+    const errors = validateConfigModel(model);
+    if (errors.length > 0) throw new Error(errors.join('; '));
+    mkdirSync(SEANCE_ROOT, { recursive: true });
+    const seanceRepo = ctx.settings.get('seanceRepoPath') ?? DEFAULT_SEANCE_REPO;
+    return scaffoldWorkspace({ root: SEANCE_ROOT, name, config: model, seanceRepo, runGit });
+  });
+
+  ctx.ipc.handle('workspace:config:read', (wsPath) => {
+    const ws = assertWorkspace(wsPath);
+    return parseConfig(readFileSync(join(ws, 'config.yaml'), 'utf-8'));
+  });
+
+  ctx.ipc.handle('workspace:config:write', async (wsPath, model) => {
+    const ws = assertWorkspace(wsPath);
+    const errors = validateConfigModel(model);
+    if (errors.length > 0) throw new Error(errors.join('; '));
+    writeFileSync(join(ws, 'config.yaml'), configToYaml(model));
+    return { clones: await syncRepos(ws, model, runGit) };
   });
 
   ctx.ipc.handle('watch:stop', (wsPath) => {
