@@ -94,7 +94,7 @@ function relTime(iso) {
 // ---- small DS-alike primitives (the host's components aren't importable
 // from a plugin, so these mirror Pill/Btn/Panel/Eyebrow on the same tokens) --
 
-function Pill({ theme, tone = 'fog', children }) {
+function Pill({ theme, tone = 'fog', title, children }) {
   const tones = {
     neon: { background: theme.neonMist, color: theme.neonInk, border: '1px solid transparent' },
     moss: { background: theme.mossMist, color: theme.pillMossFg, border: '1px solid transparent' },
@@ -103,7 +103,7 @@ function Pill({ theme, tone = 'fog', children }) {
     outline: { background: 'transparent', color: theme.ink2, border: `1px solid ${theme.hairline2}` },
   };
   return (
-    <span style={{
+    <span title={title} style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
       padding: '2px 9px', borderRadius: theme.rPill,
       fontFamily: theme.fontMono, fontSize: 10.5, lineHeight: 1.6, whiteSpace: 'nowrap',
@@ -475,7 +475,15 @@ function HeartbeatBanner({ theme, lastTickTs, onRevive, busy }) {
 
 function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSteerText }) {
   const stories = snap?.stories ?? [];
+  const inbox = snap?.inbox ?? [];
   const priorities = ['low', 'normal', 'high'];
+  const [queued, setQueued] = useState(null);
+
+  useEffect(() => {
+    if (!queued) return;
+    const t = setTimeout(() => setQueued(null), 8000);
+    return () => clearTimeout(t);
+  }, [queued]);
 
   const field = {
     fontFamily: 'inherit', fontSize: 13, color: theme.ink0,
@@ -538,8 +546,10 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
             icon={<Sparkles size={13} />}
             disabled={!ws}
             onClick={() => act(async () => {
+              const id = form.id;
               await api.ipc.invoke('summon', ws, form);
               setForm({ id: '', title: '', priority: 'normal', body: '' });
+              setQueued(`${id} is in the inbox — the séance is waking to plan it`);
             })}
           >
             summon
@@ -557,6 +567,7 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
                 void act(async () => {
                   await api.ipc.invoke('steer', ws, steerText);
                   setSteerText('');
+                  setQueued('steering note queued — the séance is waking to read it');
                 });
               }
             }}
@@ -594,12 +605,36 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
         </div>
       )}
 
+      {queued && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: theme.mossMist, border: `1px solid ${theme.moss}`,
+          borderRadius: theme.rMd, padding: '9px 13px', fontSize: 12.5, color: theme.pillMossFg,
+        }}>
+          <Check size={14} color={theme.moss} style={{ flexShrink: 0 }} />
+          <span>{queued}</span>
+        </div>
+      )}
+
+      {inbox.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Eyebrow theme={theme}>inbox · {inbox.length} awaiting the next tick</Eyebrow>
+          {inbox.map((i) => (
+            <Pill key={i.file} theme={theme} tone="outline" title={i.title}>
+              {i.id ?? 'note'}
+            </Pill>
+          ))}
+        </div>
+      )}
+
       {snap && stories.length === 0 ? (
-        <Panel theme={theme} title="board" subtitle="nothing summoned yet">
+        <Panel theme={theme} title="board" subtitle={inbox.length > 0 ? 'the séance is on its way' : 'nothing summoned yet'}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '28px 20px' }}>
             <LayoutGrid size={22} color={theme.ink3} />
             <div style={{ fontSize: 13, color: theme.ink2, textAlign: 'center', maxWidth: 420, lineHeight: 1.5 }}>
-              the board is quiet. summon your first requirement below and the séance will split it into stories and spawn a fleet.
+              {inbox.length > 0
+                ? `${inbox.filter((i) => i.id).map((i) => i.id).join(', ') || 'your note'} is waiting in the inbox — stories appear here once the planner has split it.`
+                : 'the board is quiet. summon your first requirement below and the séance will split it into stories and spawn a fleet.'}
             </div>
           </div>
         </Panel>
@@ -915,7 +950,7 @@ function Chat({ api, ws, theme }) {
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
   const [focused, setFocused] = useState(false);
-  const endRef = useRef(null);
+  const msgsRef = useRef(null);
   const taRef = useRef(null);
 
   useEffect(() => {
@@ -923,7 +958,10 @@ function Chat({ api, ws, theme }) {
   }, [api, ws]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' });
+    // scroll only the message list — scrollIntoView also scrolls the host
+    // app's ancestor containers, which reads as the whole screen jumping
+    const el = msgsRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages, pending]);
 
   // grow the textarea up to ~5 rows, then scroll internally (matches the host chat)
@@ -964,7 +1002,7 @@ function Chat({ api, ws, theme }) {
         </button>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 15, padding: '4px 2px' }}>
+      <div ref={msgsRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 15, padding: '4px 2px' }}>
         {messages.length === 0 && !pending && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center', marginTop: 48 }}>
             <GhostAvatar theme={theme} floating />
@@ -1007,7 +1045,6 @@ function Chat({ api, ws, theme }) {
             </span>
           </div>
         )}
-        <div ref={endRef} />
       </div>
 
       {/* single bordered container, borderless textarea + embedded send — mirrors the host chat */}
@@ -1129,16 +1166,35 @@ function App({ api }) {
 
   useEffect(() => {
     let alive = true;
-    api.ipc.invoke('workspaces:list').then((list) => {
+    // restore the last workspace + tab so navigating away and back doesn't
+    // dump the user on the board of the first workspace
+    Promise.all([
+      api.ipc.invoke('workspaces:list'),
+      api.settings.get('lastWorkspace').catch(() => null),
+      api.settings.get('lastTab').catch(() => null),
+    ]).then(([list, lastWs, lastTab]) => {
       if (!alive) return;
       setWorkspaces(list);
-      if (list.length) setWs((cur) => cur ?? list[0].path);
+      if (typeof lastTab === 'string' && ['board', 'hood', 'chat', 'config'].includes(lastTab)) {
+        setTab(lastTab);
+      }
+      if (list.length) {
+        const saved = list.find((w) => w.path === lastWs);
+        setWs((cur) => cur ?? (saved ? saved.path : list[0].path));
+      }
     }).catch((e) => {
       setWorkspaces([]);
       setError(String(e?.message ?? e));
     });
     return () => { alive = false; };
   }, [api]);
+
+  useEffect(() => {
+    if (ws) void Promise.resolve(api.settings.set('lastWorkspace', ws)).catch(() => {});
+  }, [ws, api]);
+  useEffect(() => {
+    void Promise.resolve(api.settings.set('lastTab', tab)).catch(() => {});
+  }, [tab, api]);
 
   useEffect(() => {
     if (!ws) return;

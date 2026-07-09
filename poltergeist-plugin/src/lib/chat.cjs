@@ -9,6 +9,10 @@ const { basename, join } = require('node:path');
 const PREAMBLE =
   'Invoke the seance-concierge skill. You are being used as a chat interface inside Poltergeist. ';
 
+// A concierge answer is an agentic run over the workspace files — 2 minutes
+// was routinely too short and surfaced as a mystery failure.
+const CHAT_TIMEOUT_MS = 300_000;
+
 function slugFor(wsPath) {
   return basename(wsPath).toLowerCase().replace(/[^a-z0-9-]/g, '-');
 }
@@ -67,9 +71,20 @@ function createChat({ dataDir, runClaude }) {
       ];
       if (sessionId) args.push('--resume', sessionId);
 
-      const { code, stdout, stderr } = await runClaude(args, ws, 120_000);
+      const { code, stdout, stderr, killed } = await runClaude(args, ws, CHAT_TIMEOUT_MS);
+      if (killed) {
+        throw new Error(
+          `séance chat timed out after ${Math.round(CHAT_TIMEOUT_MS / 1000)}s — try again, or ask something smaller`,
+        );
+      }
       if (code !== 0) {
-        throw new Error(`séance chat failed: ${(stderr || 'no output').slice(-300)}`);
+        // the CLI's stdin-timeout warning is noise, and real errors sometimes
+        // land on stdout — report the most useful thing we actually have
+        const detail =
+          (stderr ?? '').replace(/Warning: no stdin data received[^\n]*\n?/g, '').trim() ||
+          (stdout ?? '').trim() ||
+          'no output';
+        throw new Error(`séance chat failed: ${detail.slice(-300)}`);
       }
       let parsed;
       try {
