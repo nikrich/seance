@@ -186,14 +186,14 @@ function Field({ theme, label, children, width }) {
   );
 }
 
-function Segmented({ theme, value, options, onChange }) {
+function Segmented({ theme, value, options, onChange, disabled }) {
   return (
     <div style={{ display: 'inline-flex', gap: 3, padding: 3, background: theme.paper, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rSm }}>
       {options.map((o) => {
         const on = value === o;
         return (
-          <button key={o} type="button" onClick={() => onChange(o)} style={{
-            padding: '5px 11px', borderRadius: 4, cursor: 'pointer', border: 'none',
+          <button key={o} type="button" disabled={disabled} onClick={() => onChange(o)} style={{
+            padding: '5px 11px', borderRadius: 4, cursor: disabled ? 'not-allowed' : 'pointer', border: 'none',
             background: on ? theme.neonMist : 'transparent',
             color: on ? theme.neonInk : theme.ink2,
             fontFamily: theme.fontMono, fontSize: 11, fontWeight: on ? 600 : 500,
@@ -266,7 +266,7 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'end' }}>
                 <Field theme={theme} label="integration">
-                  <Segmented theme={theme} value={r.integration} options={['pr', 'merge']} onChange={(v) => setRepo(i, { integration: v })} />
+                  <Segmented theme={theme} value={r.integration} options={['pr', 'merge']} onChange={(v) => setRepo(i, { integration: v })} disabled={busy} />
                 </Field>
                 <Field theme={theme} label="test command (critic runs this on every verdict)">
                   <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }} placeholder="npm test"
@@ -347,7 +347,7 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
   );
 }
 
-function ConfigTab({ theme, api, ws }) {
+function ConfigTab({ theme, api, ws, initialCloneResults, onConsumedCloneResults }) {
   const [initial, setInitial] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -355,8 +355,13 @@ function ConfigTab({ theme, api, ws }) {
   const [savedAt, setSavedAt] = useState(null);
 
   useEffect(() => {
-    setInitial(null); setError(null); setCloneResults(null); setSavedAt(null);
+    setInitial(null); setError(null); setSavedAt(null);
+    setCloneResults(initialCloneResults ?? null);
+    if (initialCloneResults) onConsumedCloneResults?.();
     api.ipc.invoke('workspace:config:read', ws).then(setInitial).catch((e) => setError(String(e?.message ?? e)));
+    // initialCloneResults/onConsumedCloneResults intentionally excluded: this
+    // should only re-seed on mount/ws change, not whenever the parent's
+    // callback identity or (already-nulled) clones prop happens to change.
   }, [api, ws]);
 
   if (!initial && !error) return <SkeletonNote theme={theme} text="reading config…" />;
@@ -1099,10 +1104,15 @@ function App({ api }) {
     setCreateBusy(true); setCreateError(null);
     try {
       const r = await api.ipc.invoke('workspace:create', name, config);
-      setCreateClones(r.clones);
       const list = await api.ipc.invoke('workspaces:list');
       setWorkspaces(list);
-      setSnap(null); setWs(r.wsPath); setCreating(false); setTab('board');
+      setSnap(null); setWs(r.wsPath); setCreating(false);
+      const allOk = !r.clones?.some((c) => !c.ok);
+      if (allOk) {
+        setTab('board'); setCreateClones(null);
+      } else {
+        setTab('config'); setCreateClones(r.clones);
+      }
     } catch (e) { setCreateError(String(e?.message ?? e)); }
     finally { setCreateBusy(false); }
   };
@@ -1263,7 +1273,10 @@ function App({ api }) {
           )}
           {tab === 'hood' && ws && <UnderTheHood theme={theme} api={api} ws={ws} />}
           {tab === 'chat' && ws && <Chat api={api} ws={ws} theme={theme} />}
-          {tab === 'config' && ws && <ConfigTab theme={theme} api={api} ws={ws} />}
+          {tab === 'config' && ws && (
+            <ConfigTab theme={theme} api={api} ws={ws}
+              initialCloneResults={createClones} onConsumedCloneResults={() => setCreateClones(null)} />
+          )}
         </>
       )}
     </div>
