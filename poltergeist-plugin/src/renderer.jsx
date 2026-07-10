@@ -1155,30 +1155,73 @@ function UnderTheHood({ theme, api, ws }) {
 
 // ---- chat --------------------------------------------------------------
 
-function ChatText({ text }) {
-  // tiny markdown-lite: paragraphs, `code`, - lists
-  const blocks = text.split(/\n{2,}/);
-  return blocks.map((b, i) => {
-    const lines = b.split('\n');
-    const isList = lines.every((l) => l.trim().startsWith('- ') || !l.trim());
-    const renderInline = (s) =>
-      s.split(/(`[^`]+`)/).map((part, j) =>
-        part.startsWith('`') && part.endsWith('`') ? (
-          <code key={j} style={{ background: 'rgba(128,128,128,0.18)', borderRadius: 3, padding: '0 4px', fontSize: '0.92em' }}>
+function ChatText({ text, theme, onLink }) {
+  // markdown-lite for concierge answers: paragraphs, - lists, `code`,
+  // **bold**, [links](url) (opened externally, never navigated), ###
+  // headings, and pipe tables. Anything fancier renders as its raw text.
+  const inline = (s) =>
+    s.split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/).map((part, j) => {
+      if (part.startsWith('`') && part.endsWith('`')) {
+        return (
+          <code key={j} style={{ background: 'rgba(128,128,128,0.18)', borderRadius: 3, padding: '0 4px', fontSize: '0.92em', fontFamily: theme.fontMono }}>
             {part.slice(1, -1)}
           </code>
-        ) : (
-          part
-        ),
+        );
+      }
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={j} style={{ color: theme.ink0, fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
+      }
+      const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+      if (link) {
+        return (
+          <a key={j} href={link[2]}
+            onClick={(e) => { e.preventDefault(); onLink?.(link[2]); }}
+            style={{ color: theme.neonInk, textDecoration: 'underline', textUnderlineOffset: 2, cursor: 'pointer' }}>
+            {link[1]}
+          </a>
+        );
+      }
+      return part;
+    });
+
+  const cell = { padding: '5px 10px', borderBottom: `1px solid ${theme.hairline}`, textAlign: 'left', verticalAlign: 'top' };
+  const blocks = text.split(/\n{2,}/);
+  return blocks.map((b, i) => {
+    const lines = b.split('\n').filter((l) => l.trim());
+    const isTable = lines.length >= 2 && lines.every((l) => l.trim().startsWith('|'));
+    if (isTable) {
+      const rows = lines
+        .filter((l) => !/^\s*\|[\s\-|:]+\|\s*$/.test(l)) // drop the separator row
+        .map((l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
+      const [head, ...body] = rows;
+      return (
+        <div key={i} style={{ overflowX: 'auto', margin: '6px 0' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: '0.94em', minWidth: '60%' }}>
+            <thead>
+              <tr>{head.map((c, k) => (
+                <th key={k} style={{ ...cell, fontFamily: theme.fontMono, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: theme.ink2, borderBottom: `1px solid ${theme.hairline2}` }}>{inline(c)}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {body.map((r, k) => <tr key={k}>{r.map((c, m) => <td key={m} style={{ ...cell, color: theme.ink1 }}>{inline(c)}</td>)}</tr>)}
+            </tbody>
+          </table>
+        </div>
       );
+    }
+    const isList = lines.every((l) => l.trim().startsWith('- '));
     if (isList) {
       return (
         <ul key={i} style={{ margin: '4px 0', paddingLeft: 18 }}>
-          {lines.filter((l) => l.trim()).map((l, j) => <li key={j}>{renderInline(l.trim().slice(2))}</li>)}
+          {lines.map((l, j) => <li key={j} style={{ margin: '2px 0' }}>{inline(l.trim().slice(2))}</li>)}
         </ul>
       );
     }
-    return <p key={i} style={{ margin: '4px 0' }}>{renderInline(b)}</p>;
+    const h = b.trim().match(/^#{2,4}\s+(.*)$/);
+    if (h && lines.length === 1) {
+      return <div key={i} style={{ fontFamily: theme.fontMono, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.1em', color: theme.ink2, margin: '8px 0 2px' }}>{inline(h[1])}</div>;
+    }
+    return <p key={i} style={{ margin: '4px 0' }}>{inline(b)}</p>;
   });
 }
 
@@ -1297,7 +1340,7 @@ function Chat({ api, ws, theme }) {
               padding: m.role === 'user' ? '9px 13px' : m.role === 'error' ? '9px 13px' : '3px 0',
               fontSize: 13.5, lineHeight: 1.55,
             }}>
-              <ChatText text={m.text} />
+              <ChatText text={m.text} theme={theme} onLink={(url) => api.openExternal(url)} />
             </div>
           </div>
         ))}
