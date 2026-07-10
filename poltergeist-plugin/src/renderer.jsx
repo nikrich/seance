@@ -1620,12 +1620,16 @@ const KEYFRAMES = `
 `;
 
 export function mount(el, api) {
-  if (!document.getElementById('seance-plugin-kf')) {
-    const style = document.createElement('style');
+  // Always rewrite the sheet: the element outlives unmount, so a create-once
+  // guard would keep serving a previous version's CSS after an in-place
+  // plugin update (0.4.4's flex-shrink fix never landed for updaters).
+  let style = document.getElementById('seance-plugin-kf');
+  if (!style) {
+    style = document.createElement('style');
     style.id = 'seance-plugin-kf';
-    style.textContent = KEYFRAMES;
     document.head.appendChild(style);
   }
+  style.textContent = KEYFRAMES;
   const root = createRoot(el);
   root.render(<App api={api} />);
   return () => root.unmount();
