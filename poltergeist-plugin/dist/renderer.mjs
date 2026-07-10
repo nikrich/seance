@@ -22,7 +22,7 @@ Error generating stack: `+l.message+`
 /* a scroll container's flex children must never shrink \u2014 default flex-shrink:1
    compresses them when content exceeds the viewport and their contents overlap */
 .seance-scroll-col > * { flex-shrink: 0; }
-`;function BC(a,e){if(!document.getElementById("seance-plugin-kf")){let l=document.createElement("style");l.id="seance-plugin-kf",l.textContent=wh,document.head.appendChild(l)}let t=(0,Bm.createRoot)(a);return t.render((0,n.jsx)(Bh,{api:e})),()=>t.unmount()}export{BC as mount};
+`;function BC(a,e){let t=document.getElementById("seance-plugin-kf");t||(t=document.createElement("style"),t.id="seance-plugin-kf",document.head.appendChild(t)),t.textContent=wh;let l=(0,Bm.createRoot)(a);return l.render((0,n.jsx)(Bh,{api:e})),()=>l.unmount()}export{BC as mount};
 /*! Bundled license information:
 
 react/cjs/react.production.js:
