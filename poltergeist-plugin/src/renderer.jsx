@@ -475,9 +475,48 @@ function HeartbeatBanner({ theme, lastTickTs, onRevive, busy }) {
 
 // ---- waiting on you: spec reviews, questions, feature PRs ----------------
 
+// markdown-lite for specs: ##/### headings, - bullets, **bold**, `code`.
+// Same spirit as ChatText, plus the heading/bold vocabulary planner specs use.
+function MdLite({ theme, text }) {
+  const inline = (s) =>
+    s.split(/(`[^`]+`|\*\*[^*]+\*\*)/).map((part, j) =>
+      part.startsWith('`') && part.endsWith('`') ? (
+        <code key={j} style={{ background: 'rgba(128,128,128,0.18)', borderRadius: 3, padding: '0 4px', fontFamily: theme.fontMono, fontSize: '0.9em' }}>{part.slice(1, -1)}</code>
+      ) : part.startsWith('**') && part.endsWith('**') ? (
+        <strong key={j} style={{ color: theme.ink0, fontWeight: 600 }}>{part.slice(2, -2)}</strong>
+      ) : (
+        part
+      ),
+    );
+  const heading = {
+    fontFamily: theme.fontMono, fontSize: 10.5, textTransform: 'uppercase',
+    letterSpacing: '0.1em', color: theme.ink2, marginTop: 6,
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: 13, lineHeight: 1.55, color: theme.ink1 }}>
+      {text.split('\n').map((l, i) => {
+        const t = l.trim();
+        if (t === '') return null;
+        const h = t.match(/^#{2,4}\s+(.*)$/);
+        if (h) return <div key={i} style={{ ...heading, marginTop: i === 0 ? 0 : 6 }}>{h[1]}</div>;
+        if (t.startsWith('- ')) {
+          return (
+            <div key={i} style={{ display: 'flex', gap: 8, paddingLeft: 4 }}>
+              <span style={{ color: theme.ink3, flexShrink: 0 }}>•</span>
+              <span style={{ minWidth: 0 }}>{inline(t.slice(2))}</span>
+            </div>
+          );
+        }
+        return <div key={i}>{inline(t)}</div>;
+      })}
+    </div>
+  );
+}
+
 function SpecReviewCard({ theme, api, ws, act, req }) {
   const [text, setText] = useState(req.spec);
   const [feedback, setFeedback] = useState('');
+  const [editing, setEditing] = useState(false);
   useEffect(() => setText(req.spec), [req.id, req.spec]);
   const field = {
     fontFamily: theme.fontMono, fontSize: 12, lineHeight: 1.55, color: theme.ink0,
@@ -485,10 +524,28 @@ function SpecReviewCard({ theme, api, ws, act, req }) {
     padding: '9px 11px', outline: 'none', width: '100%', boxSizing: 'border-box',
   };
   return (
-    <Panel theme={theme} title={`spec review — ${req.id}`} subtitle={req.title}>
+    <Panel
+      theme={theme}
+      title={`spec review — ${req.id}`}
+      subtitle={req.title}
+      action={
+        <Btn theme={theme} variant="ghost" onClick={() => setEditing((e) => !e)}>
+          {editing ? 'preview' : 'edit'}
+        </Btn>
+      }
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <textarea rows={10} style={{ ...field, resize: 'vertical', minHeight: 140 }}
-          value={text} onChange={(e) => setText(e.target.value)} />
+        {editing ? (
+          <textarea rows={10} style={{ ...field, resize: 'vertical', minHeight: 140 }}
+            value={text} onChange={(e) => setText(e.target.value)} />
+        ) : (
+          <div style={{
+            maxHeight: 340, overflowY: 'auto', padding: '10px 12px',
+            background: theme.paper, border: `1px solid ${theme.hairline}`, borderRadius: theme.rSm,
+          }}>
+            <MdLite theme={theme} text={text} />
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center' }}>
           <input style={{ ...field, fontFamily: 'inherit', fontSize: 12.5 }}
             placeholder="feedback for the planner (required to request changes)"
@@ -605,6 +662,10 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
   const inbox = snap?.inbox ?? [];
   const priorities = ['low', 'normal', 'high'];
   const [queued, setQueued] = useState(null);
+  // null = auto (open only when the board is empty); the strips and columns
+  // grow over time and were pushing the capture form out of sight
+  const [composerOpen, setComposerOpen] = useState(null);
+  const showComposer = composerOpen ?? ((snap?.stories ?? []).length === 0);
 
   useEffect(() => {
     if (!queued) return;
@@ -618,8 +679,13 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
     padding: '8px 11px', outline: 'none', width: '100%', boxSizing: 'border-box',
   };
 
-  const composer = (
-    <Panel theme={theme} title="summon a requirement" subtitle="acceptance criteria, not implementation">
+  const composer = showComposer ? (
+    <Panel
+      theme={theme}
+      title="summon a requirement"
+      subtitle="acceptance criteria, not implementation"
+      action={<Btn theme={theme} variant="ghost" onClick={() => setComposerOpen(false)}>collapse</Btn>}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', gap: 10, alignItems: 'center' }}>
           <input
@@ -702,6 +768,21 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
         </div>
       </div>
     </Panel>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setComposerOpen(true)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+        background: theme.vellum, border: `1px dashed ${theme.hairline2}`, borderRadius: theme.rMd,
+        padding: '10px 13px', cursor: 'pointer', fontFamily: 'inherit',
+      }}
+    >
+      <Sparkles size={13} color={theme.neonInk} />
+      <span style={{ fontSize: 13, color: theme.ink1 }}>summon a requirement…</span>
+      <span style={{ flex: 1 }} />
+      <span style={{ fontFamily: theme.fontMono, fontSize: 10.5, color: theme.ink3 }}>acceptance criteria, not implementation</span>
+    </button>
   );
 
   return (
@@ -772,6 +853,8 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
         </div>
       )}
 
+      {composer}
+
       {snap && stories.length === 0 ? (
         <Panel theme={theme} title="board" subtitle={inbox.length > 0 ? 'the séance is on its way' : 'nothing summoned yet'}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '28px 20px' }}>
@@ -812,7 +895,6 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
         </div>
       )}
 
-      {composer}
     </div>
   );
 }
