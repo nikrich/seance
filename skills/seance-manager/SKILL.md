@@ -55,8 +55,9 @@ Then, for each directory in `config.yaml`'s optional `inbox_feeds: [..]`
 frontmatter has `id`, `title`, and `category` (the outbox contract —
 producers like Ouija publish these). For each, **claim by moving**:
 `mv "<feed>/<file>" inbox/` — rename is atomic; if the move fails another
-consumer won the race, skip it. If a requirement with that `id` already
-exists in this workspace, do NOT claim — leave the file and write
+consumer won the race, skip it. If a requirement with that id already exists
+in this workspace — in `state/requirements/` OR already sitting in
+`inbox/` — do NOT claim; leave the file and write
 `attention/feed-collision-<id>.md` naming both. After a successful claim,
 write the receipt `<feed>/../claims/<id>.json`:
 `{"id": "<id>", "claimed_by": "seance/<workspace-name>", "claimed_at": "<ts>"}`

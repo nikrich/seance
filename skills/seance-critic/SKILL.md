@@ -106,12 +106,18 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   git merge --no-ff <branch> -m "seance: merge <story-id>"
   ```
   Run `test_command` once more on `default_branch` post-merge. If it fails, revert the merge (`git reset --hard ORIG_HEAD`) and treat as REJECT with the failure output.
-- `pr`: `git push -u origin <branch>` then compose the PR explicitly (never `--fill`):
-  `gh pr create --title "🔮 <story title>" --body "<summary of what changed
-  and why, from the ledger>
+- `pr`: `git push -u origin <branch>` then compose the PR body explicitly (never `--fill`) and write it to a body file — inline `--body` is unsafe, the ledger summary is unsanitized text that a shell may expand:
+  ```bash
+  cat > .seance-pr-body.md <<'EOF'
+  <summary of what changed and why, from the ledger>
 
   ---
-  🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)" --head <branch>`;
+  🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)
+  EOF
+  gh pr create --title "🔮 <story title>" --body-file .seance-pr-body.md --head <branch>
+  rm .seance-pr-body.md
+  ```
+  The heredoc delimiter (`'EOF'`) is quoted so `$(…)`/backtick sequences in the summary are never expanded. Titles go on the command line — strip any double quotes from the title text first; everything else belongs in the body file.
   record the PR URL in the ledger.
 - `feature-pr`: if the requirement's frontmatter has no `feature_branch`,
   fall back to the `pr` bullet above instead. Otherwise: merge `--no-ff`
@@ -122,13 +128,20 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   sibling critic just pushed to `feature_branch` first — `git pull --rebase`
   the feature branch and retry the merge once. Set story `status: merged`
   (merged-to-feature). Then, if EVERY story
-  of the requirement now has `status: merged`: compose the PR explicitly
-  (never `--fill`):
-  `gh pr create --title "🔮 <requirement title>" --body "<summary of what
-  changed and why, from the ledger>
+  of the requirement now has `status: merged`: compose the PR body explicitly
+  (never `--fill`) and write it to a body file — inline `--body` is unsafe, the
+  ledger summary is unsanitized text that a shell may expand:
+  ```bash
+  cat > .seance-pr-body.md <<'EOF'
+  <summary of what changed and why, from the ledger>
 
   ---
-  🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)" --base <default_branch> --head <feature_branch>`,
+  🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)
+  EOF
+  gh pr create --title "🔮 <requirement title>" --body-file .seance-pr-body.md --base <default_branch> --head <feature_branch>
+  rm .seance-pr-body.md
+  ```
+  The heredoc delimiter (`'EOF'`) is quoted so `$(…)`/backtick sequences in the summary are never expanded. Titles go on the command line — strip any double quotes from the title text first; everything else belongs in the body file.
   record the URL as `feature_pr:` in the requirement frontmatter, and set
   the requirement `status: done` (the human merges the PR). If `gh pr
   create` fails because a PR for `feature_branch` already exists, fetch its

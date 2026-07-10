@@ -23,7 +23,7 @@ repos:
 # receipt records who took them. Optional — omit or point at nonexistent
 # dirs and draining is skipped silently.
 # inbox_feeds:
-#   - ~/ouija/outbox
+#   - /Users/you/ouija/outbox  # (absolute path — ~ is not expanded)
 
 # Concurrency limits (enforced by the manager tick).
 max_builders: 3
