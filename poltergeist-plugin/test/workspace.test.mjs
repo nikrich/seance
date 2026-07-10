@@ -119,6 +119,45 @@ test('configToYaml: ignores extra entries that collide with known keys', () => {
   assert.deepEqual(back.extra, { custom_key: 'kept' });
 });
 
+test('parseConfig: inbox_feeds absent defaults to []', () => {
+  const m = parseConfig(TEMPLATE);
+  assert.deepEqual(m.inbox_feeds, []);
+});
+
+test('inbox_feeds: round-trips and never rides in extra', () => {
+  const m = parseConfig(TEMPLATE);
+  m.inbox_feeds = ['/Users/you/ouija/outbox', '/Users/you/other/outbox'];
+  const yaml = configToYaml(m);
+  const back = parseConfig(yaml);
+  assert.deepEqual(back.inbox_feeds, ['/Users/you/ouija/outbox', '/Users/you/other/outbox']);
+  assert.deepEqual(back.extra, {});
+});
+
+test('configToYaml: empty inbox_feeds emits no inbox_feeds key', () => {
+  const m = parseConfig(TEMPLATE);
+  m.inbox_feeds = [];
+  const yaml = configToYaml(m);
+  assert.ok(!yaml.includes('inbox_feeds'));
+});
+
+test('validateConfigModel: rejects non-absolute inbox_feeds entries', () => {
+  const relative = parseConfig(TEMPLATE);
+  relative.inbox_feeds = ['relative/path'];
+  assert.ok(validateConfigModel(relative).some((e) => e === 'inbox_feeds entries must be absolute paths'));
+
+  const notString = parseConfig(TEMPLATE);
+  notString.inbox_feeds = [42];
+  assert.ok(validateConfigModel(notString).some((e) => e === 'inbox_feeds entries must be absolute paths'));
+
+  const empty = parseConfig(TEMPLATE);
+  empty.inbox_feeds = [''];
+  assert.ok(validateConfigModel(empty).some((e) => e === 'inbox_feeds entries must be absolute paths'));
+
+  const valid = parseConfig(TEMPLATE);
+  valid.inbox_feeds = ['/Users/you/ouija/outbox'];
+  assert.deepEqual(validateConfigModel(valid), []);
+});
+
 function fakeGit(failFor = []) {
   const calls = [];
   const runGit = async (args) => {

@@ -7799,7 +7799,8 @@ var require_workspace = __commonJS({
       "max_agent_minutes",
       "attempt_cap",
       "models",
-      "sleep"
+      "sleep",
+      "inbox_feeds"
     ];
     var DEFAULT_MODELS = { manager: "haiku", planner: "opus", builder: "sonnet", critic: "opus" };
     var DEFAULT_SLEEP = { active: 60, idle: 600 };
@@ -7826,6 +7827,7 @@ var require_workspace = __commonJS({
         attempt_cap: doc.attempt_cap ?? 3,
         models: { ...DEFAULT_MODELS, ...doc.models ?? {} },
         sleep: { ...DEFAULT_SLEEP, ...doc.sleep ?? {} },
+        inbox_feeds: Array.isArray(doc.inbox_feeds) ? doc.inbox_feeds : [],
         extra
       };
     }
@@ -7849,6 +7851,7 @@ var require_workspace = __commonJS({
         attempt_cap: model.attempt_cap,
         models: model.models,
         sleep: model.sleep,
+        ...model.inbox_feeds?.length > 0 ? { inbox_feeds: model.inbox_feeds } : {},
         ...Object.fromEntries(Object.entries(model.extra ?? {}).filter(([k]) => !KNOWN_KEYS.includes(k)))
       });
     }
@@ -7875,6 +7878,10 @@ var require_workspace = __commonJS({
       }
       for (const k of ["active", "idle"]) {
         if (!Number.isInteger(m.sleep?.[k]) || m.sleep[k] < 1) errors.push(`sleep.${k} must be a positive integer`);
+      }
+      const feeds = Array.isArray(m.inbox_feeds) ? m.inbox_feeds : [];
+      if (feeds.some((f) => typeof f !== "string" || !f.startsWith("/"))) {
+        errors.push("inbox_feeds entries must be absolute paths");
       }
       return errors;
     }
