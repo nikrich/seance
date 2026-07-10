@@ -5,6 +5,8 @@ set -u
 WS="${1:?usage: heartbeat.sh <workspace-dir>}"
 cd "$WS" || exit 1
 mkdir -p logs
+# agents wake us on exit by killing our `sleep` child (see manager skill)
+echo $$ > .heartbeat.pid
 RL_SLEEP=0
 while true; do
   claude -p "Invoke the seance-manager skill and run exactly one manager tick." \
