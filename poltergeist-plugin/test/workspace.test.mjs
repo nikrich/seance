@@ -153,9 +153,20 @@ test('validateConfigModel: rejects non-absolute inbox_feeds entries', () => {
   empty.inbox_feeds = [''];
   assert.ok(validateConfigModel(empty).some((e) => e === 'inbox_feeds entries must be absolute paths'));
 
+  const root = parseConfig(TEMPLATE);
+  root.inbox_feeds = ['/'];
+  assert.ok(validateConfigModel(root).some((e) => e === 'inbox_feeds entries must be absolute paths'));
+
   const valid = parseConfig(TEMPLATE);
   valid.inbox_feeds = ['/Users/you/ouija/outbox'];
   assert.deepEqual(validateConfigModel(valid), []);
+});
+
+test('parseConfig: coerces non-string inbox_feeds entries to strings', () => {
+  const withNumeric = parseConfig(TEMPLATE + 'inbox_feeds:\n  - 42\n');
+  assert.deepEqual(withNumeric.inbox_feeds, ['42']);
+  // Coerced to a string, but still relative (no leading "/"), so validation still rejects it.
+  assert.ok(validateConfigModel(withNumeric).some((e) => e === 'inbox_feeds entries must be absolute paths'));
 });
 
 function fakeGit(failFor = []) {

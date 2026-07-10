@@ -226,7 +226,7 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
   const clientErrors = [];
   if (mode === 'create' && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) clientErrors.push('workspace name: letters, digits, . _ - only');
   if (!cfg.repos.some((r) => r.url.trim())) clientErrors.push('at least one repo with a url');
-  if (feeds.some((f) => !f.startsWith('/'))) clientErrors.push('inbox_feeds entries must be absolute paths');
+  if (feeds.some((f) => typeof f !== 'string' || !f.startsWith('/'))) clientErrors.push('inbox_feeds entries must be absolute paths');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>

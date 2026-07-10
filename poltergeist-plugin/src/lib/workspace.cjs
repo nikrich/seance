@@ -38,7 +38,7 @@ function parseConfig(text) {
     attempt_cap: doc.attempt_cap ?? 3,
     models: { ...DEFAULT_MODELS, ...(doc.models ?? {}) },
     sleep: { ...DEFAULT_SLEEP, ...(doc.sleep ?? {}) },
-    inbox_feeds: Array.isArray(doc.inbox_feeds) ? doc.inbox_feeds : [],
+    inbox_feeds: Array.isArray(doc.inbox_feeds) ? doc.inbox_feeds.map(String) : [],
     extra,
   };
 }
@@ -93,7 +93,7 @@ function validateConfigModel(m) {
     if (!Number.isInteger(m.sleep?.[k]) || m.sleep[k] < 1) errors.push(`sleep.${k} must be a positive integer`);
   }
   const feeds = Array.isArray(m.inbox_feeds) ? m.inbox_feeds : [];
-  if (feeds.some((f) => typeof f !== 'string' || !f.startsWith('/'))) {
+  if (feeds.some((f) => typeof f !== 'string' || !(f.startsWith('/') && f.length > 1))) {
     errors.push('inbox_feeds entries must be absolute paths');
   }
   return errors;
