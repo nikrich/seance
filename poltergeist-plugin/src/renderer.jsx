@@ -787,7 +787,7 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', minHeight: 0, paddingBottom: 4 }}>
+    <div className="seance-scroll-col" style={{ display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', minHeight: 0, paddingBottom: 4 }}>
       {snap && !hb.running && (
         <HeartbeatBanner
           theme={theme}
@@ -1588,6 +1588,9 @@ const KEYFRAMES = `
 .seance-typing { animation: seance-typing-kf 1.1s ease-in-out infinite; }
 @keyframes seance-float-kf { 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-3px);} }
 .seance-float { animation: seance-float-kf 3s ease-in-out infinite; }
+/* a scroll container's flex children must never shrink — default flex-shrink:1
+   compresses them when content exceeds the viewport and their contents overlap */
+.seance-scroll-col > * { flex-shrink: 0; }
 `;
 
 export function mount(el, api) {
