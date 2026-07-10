@@ -29,8 +29,11 @@ max_agent_minutes: 45
 attempt_cap: 3
 
 # Model per role (claude CLI aliases). Judgment roles get the strong model.
+# The manager tick carries real routing logic (spec gate, dep eligibility,
+# question lifecycle) — haiku has been observed spawning builders whose deps
+# weren't ready; sonnet is the safe default.
 models:
-  manager: haiku
+  manager: sonnet
   planner: opus
   builder: sonnet
   critic: opus

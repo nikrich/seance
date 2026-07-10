@@ -86,6 +86,7 @@ function useTheme(api) {
 function relTime(iso) {
   if (!iso) return 'never';
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (!Number.isFinite(s)) return '\u2014'; // ledger headings sometimes carry text where the ts belongs
   if (s < 90) return `${Math.round(s)}s ago`;
   if (s < 5400) return `${Math.round(s / 60)}m ago`;
   return `${Math.round(s / 3600)}h ago`;
