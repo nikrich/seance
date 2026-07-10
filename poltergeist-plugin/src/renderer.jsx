@@ -1185,43 +1185,60 @@ function ChatText({ text, theme, onLink }) {
     });
 
   const cell = { padding: '5px 10px', borderBottom: `1px solid ${theme.hairline}`, textAlign: 'left', verticalAlign: 'top' };
+
+  const renderTable = (lines, key) => {
+    const rows = lines
+      .filter((l) => !/^\s*\|[\s\-|:]+\|\s*$/.test(l)) // drop the separator row
+      .map((l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
+    const [head, ...body] = rows;
+    return (
+      <div key={key} style={{ overflowX: 'auto', margin: '6px 0' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: '0.94em', minWidth: '60%' }}>
+          <thead>
+            <tr>{head.map((c, k) => (
+              <th key={k} style={{ ...cell, fontFamily: theme.fontMono, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: theme.ink2, borderBottom: `1px solid ${theme.hairline2}` }}>{inline(c)}</th>
+            ))}</tr>
+          </thead>
+          <tbody>
+            {body.map((r, k) => <tr key={k}>{r.map((c, m) => <td key={m} style={{ ...cell, color: theme.ink1 }}>{inline(c)}</td>)}</tr>)}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  // Group each block's lines into runs — the concierge often glues a bold
+  // heading straight onto a table (single newline), so type is decided per
+  // consecutive line-run, never per whole block.
+  const lineType = (l) => (l.trim().startsWith('|') ? 'table' : l.trim().startsWith('- ') ? 'list' : 'text');
   const blocks = text.split(/\n{2,}/);
   return blocks.map((b, i) => {
     const lines = b.split('\n').filter((l) => l.trim());
-    const isTable = lines.length >= 2 && lines.every((l) => l.trim().startsWith('|'));
-    if (isTable) {
-      const rows = lines
-        .filter((l) => !/^\s*\|[\s\-|:]+\|\s*$/.test(l)) // drop the separator row
-        .map((l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
-      const [head, ...body] = rows;
-      return (
-        <div key={i} style={{ overflowX: 'auto', margin: '6px 0' }}>
-          <table style={{ borderCollapse: 'collapse', fontSize: '0.94em', minWidth: '60%' }}>
-            <thead>
-              <tr>{head.map((c, k) => (
-                <th key={k} style={{ ...cell, fontFamily: theme.fontMono, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: theme.ink2, borderBottom: `1px solid ${theme.hairline2}` }}>{inline(c)}</th>
-              ))}</tr>
-            </thead>
-            <tbody>
-              {body.map((r, k) => <tr key={k}>{r.map((c, m) => <td key={m} style={{ ...cell, color: theme.ink1 }}>{inline(c)}</td>)}</tr>)}
-            </tbody>
-          </table>
-        </div>
-      );
+    const runs = [];
+    for (const l of lines) {
+      const t = lineType(l);
+      if (runs.length && runs[runs.length - 1].type === t) runs[runs.length - 1].lines.push(l);
+      else runs.push({ type: t, lines: [l] });
     }
-    const isList = lines.every((l) => l.trim().startsWith('- '));
-    if (isList) {
-      return (
-        <ul key={i} style={{ margin: '4px 0', paddingLeft: 18 }}>
-          {lines.map((l, j) => <li key={j} style={{ margin: '2px 0' }}>{inline(l.trim().slice(2))}</li>)}
-        </ul>
-      );
-    }
-    const h = b.trim().match(/^#{2,4}\s+(.*)$/);
-    if (h && lines.length === 1) {
-      return <div key={i} style={{ fontFamily: theme.fontMono, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.1em', color: theme.ink2, margin: '8px 0 2px' }}>{inline(h[1])}</div>;
-    }
-    return <p key={i} style={{ margin: '4px 0' }}>{inline(b)}</p>;
+    return (
+      <div key={i} style={{ margin: '4px 0' }}>
+        {runs.map((run, j) => {
+          if (run.type === 'table' && run.lines.length >= 2) return renderTable(run.lines, j);
+          if (run.type === 'list') {
+            return (
+              <ul key={j} style={{ margin: '4px 0', paddingLeft: 18 }}>
+                {run.lines.map((l, k) => <li key={k} style={{ margin: '2px 0' }}>{inline(l.trim().slice(2))}</li>)}
+              </ul>
+            );
+          }
+          return run.lines.map((l, k) => {
+            const h = l.trim().match(/^#{2,4}\s+(.*)$/);
+            if (h) return <div key={`${j}-${k}`} style={{ fontFamily: theme.fontMono, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.1em', color: theme.ink2, margin: '8px 0 2px' }}>{inline(h[1])}</div>;
+            return <p key={`${j}-${k}`} style={{ margin: '2px 0' }}>{inline(l)}</p>;
+          });
+        })}
+      </div>
+    );
   });
 }
 
