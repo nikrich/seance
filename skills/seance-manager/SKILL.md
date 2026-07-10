@@ -42,7 +42,7 @@ If `config.yaml` is missing: write `attention/no-config.md` ("workspace has no c
 
 For each `inbox/*.md` (skip directories):
 
-- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: speccing` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead, and clear `blocked_reason` from its frontmatter so it becomes spawnable again.
+- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: speccing` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead, and clear `blocked_reason` from its frontmatter so it becomes spawnable again. Extra frontmatter keys a producer supplied (e.g. `category`, `priority`, `provenance` from a feed contract file) are part of "the same frontmatter" — copy them through untouched.
 - **No `id:` frontmatter** → it's a steering note. Apply it now:
   - "pause repo X" / "resume repo X" → add/remove X in `paused_repos` in `config.yaml`.
   - "priority <req-id> ..." / "<req-id> first" → set that requirement's `priority: high`.
@@ -60,9 +60,14 @@ exists in this workspace, do NOT claim — leave the file and write
 `attention/feed-collision-<id>.md` naming both. After a successful claim,
 write the receipt `<feed>/../claims/<id>.json`:
 `{"id": "<id>", "claimed_by": "seance/<workspace-name>", "claimed_at": "<ts>"}`
-(create the claims dir if needed). When the claimed file becomes a
-requirement, prefix its title with `[<category>]` and carry `priority`
-through; record `provenance` in the requirement body.
+(create the claims dir if needed). (`provenance` in the claimed file is the
+producer's pointer back to the source — a vault note path or URL — and needs
+no processing here.) Immediately after a successful claim, edit the claimed
+file IN `inbox/` before writing the receipt: rewrite its frontmatter
+`title:` to `[<category>] <original title>` (e.g. `title: [bug] Fix export
+crash`). Nothing else changes — `category`, `priority`, and `provenance`
+already live in the file's frontmatter and ride into the requirement
+verbatim via the normal promotion bullet on a later pass of this same step.
 
 ### 2. Reap
 
