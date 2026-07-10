@@ -75,6 +75,12 @@ and never invent an answer to an escalation-worthy question.
 
 ## Phase B — decompose (when invoked to DECOMPOSE)
 
+**Decompose for parallelism**: `deps` exist for real data/API
+dependencies, not narrative order. Stories touching disjoint files or
+screens must NOT be chained — a strict s1→s2→s3→s4 chain uses one of
+`max_builders` slots by construction. Before writing stories, ask of every
+dep: "does this story consume something the dep produces?" If no, drop it.
+
 Decompose from the approved `## Spec` — it supersedes the raw requirement
 body wherever they differ. Everything below (stories, oracles, deps) is
 unchanged. If the requirement has no `## Spec` section (legacy, mid-flight

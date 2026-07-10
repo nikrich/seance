@@ -66,7 +66,7 @@ If **dead**: move the registry file to `journal/agents/`. Then reconcile its wor
 
 ### 3. Kill stuck
 
-For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `kill <pid>`, then apply the dead-agent reconciliation from step 2 with ledger note `### Attempt N — killed (<ts>)` followed by a bullet `- What failed: stuck past max_agent_minutes` (the parenthesized part of a ledger heading is ALWAYS the ISO timestamp — tools parse it).
+For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `pkill -P <pid>; kill <pid>` (children first — the registry pid is the spawn wrapper; a bare kill would orphan the claude process), then apply the dead-agent reconciliation from step 2 with ledger note `### Attempt N — killed (<ts>)` followed by a bullet `- What failed: stuck past max_agent_minutes` (the parenthesized part of a ledger heading is ALWAYS the ISO timestamp — tools parse it).
 
 ### 4. Terminal states
 
@@ -108,11 +108,18 @@ requirement, choosing the prompt by status:
 
 ```bash
 AGENT_ID="planner-<req-id>-$RANDOM"
-nohup claude -p "<the DRAFT THE SPEC or DECOMPOSE prompt above, for <req-id>>" \
-  --dangerously-skip-permissions --model <models.planner> \
+nohup sh -c 'claude -p "<the DRAFT THE SPEC or DECOMPOSE prompt above, for <req-id>>" \
+  --dangerously-skip-permissions --model <models.planner>; \
+  [ -f .heartbeat.pid ] && pkill -P "$(cat .heartbeat.pid)" -x sleep' \
   > "logs/$AGENT_ID.log" 2>&1 &
 PID=$!
 ```
+
+The trailing `pkill` wakes the sleeping heartbeat the moment the agent
+exits, so handoffs (built → critic, planned → builders) are picked up on
+the next second instead of after `sleep.idle`. `$PID` is the wrapper shell —
+it lives exactly as long as the agent, so liveness checks are unchanged, but
+killing it requires taking its children first (step 3 does).
 
 Then write `state/agents/$AGENT_ID.md`:
 
