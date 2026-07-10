@@ -53,7 +53,12 @@ For each `inbox/*.md` (skip directories):
 Then, for each directory in `config.yaml`'s optional `inbox_feeds: [..]`
 (skip silently if unset or a dir doesn't exist): list `*.md` files whose
 frontmatter has `id`, `title`, and `category` (the outbox contract —
-producers like Ouija publish these). For each, **claim by moving**:
+producers like Ouija publish these). **Claim only work this workspace can
+build**: if the file has a non-null `repo_hint`, claim it only when that
+hint case-insensitively matches (equals or contains) one of `config.yaml`'s
+`repos:` names — otherwise leave the file untouched for a fleet that covers
+it (the producer's UI nudges the human to create one). Files with no
+`repo_hint` are fair game. For each claimable file, **claim by moving**:
 `mv "<feed>/<file>" inbox/` — rename is atomic; if the move fails another
 consumer won the race, skip it. If a requirement with that id already exists
 in this workspace — in `state/requirements/` OR already sitting in
