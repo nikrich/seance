@@ -17,6 +17,14 @@ repos:
     # planner bases story oracles on it.
     test_command: npm test
 
+# Directories the manager drains alongside inbox/, for requirements published
+# by other tools (the outbox contract: *.md files with id/title/category
+# frontmatter). Claimed files are moved into inbox/ atomically; a claims/
+# receipt records who took them. Optional — omit or point at nonexistent
+# dirs and draining is skipped silently.
+# inbox_feeds:
+#   - /Users/you/ouija/outbox  # (absolute path — ~ is not expanded)
+
 # Concurrency limits (enforced by the manager tick).
 max_builders: 3
 max_critics: 2

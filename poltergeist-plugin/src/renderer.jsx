@@ -174,6 +174,7 @@ const BLANK_CONFIG = {
   max_builders: 3, max_critics: 2, max_planner: 1, max_agent_minutes: 45, attempt_cap: 3,
   models: { manager: 'haiku', planner: 'opus', builder: 'sonnet', critic: 'opus' },
   sleep: { active: 60, idle: 600 },
+  inbox_feeds: [],
 };
 const MODEL_OPTIONS = ['haiku', 'sonnet', 'opus'];
 const repoNameFromUrl = (url) => (url.split('/').pop() ?? '').replace(/\.git$/, '').trim();
@@ -219,10 +220,13 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
   const set = (patch) => setCfg((c) => ({ ...c, ...patch }));
   const setRepo = (i, patch) => setCfg((c) => ({ ...c, repos: c.repos.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
   const num = (v) => { const n = parseInt(v, 10); return Number.isNaN(n) ? 0 : n; };
+  const feeds = cfg.inbox_feeds ?? [];
+  const setFeed = (i, value) => setCfg((c) => ({ ...c, inbox_feeds: (c.inbox_feeds ?? []).map((f, j) => (j === i ? value : f)) }));
 
   const clientErrors = [];
   if (mode === 'create' && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) clientErrors.push('workspace name: letters, digits, . _ - only');
   if (!cfg.repos.some((r) => r.url.trim())) clientErrors.push('at least one repo with a url');
+  if (feeds.some((f) => typeof f !== 'string' || !f.startsWith('/'))) clientErrors.push('inbox_feeds entries must be absolute paths');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
@@ -277,6 +281,28 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
             </div>
           ))}
         </div>
+      </Panel>
+
+      <Panel theme={theme} title="feed directories" subtitle="outboxes séance drains into this workspace (e.g. ouija)"
+        action={<Btn theme={theme} variant="ghost" disabled={busy}
+          onClick={() => set({ inbox_feeds: [...feeds, ''] })}>+ add feed</Btn>}>
+        {feeds.length === 0 ? (
+          <span style={{ fontSize: 12, color: theme.ink3 }}>no feeds — séance only drains its own inbox/</span>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {feeds.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input style={{ ...field, fontFamily: theme.fontMono, fontSize: 12 }} placeholder="/Users/you/ouija/outbox"
+                  value={f} disabled={busy} onChange={(e) => setFeed(i, e.target.value)} />
+                <button type="button" title="remove feed" disabled={busy}
+                  onClick={() => set({ inbox_feeds: feeds.filter((_, j) => j !== i) })}
+                  style={{ background: 'transparent', border: 'none', color: theme.ink3, cursor: 'pointer', padding: 6 }}>
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </Panel>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>

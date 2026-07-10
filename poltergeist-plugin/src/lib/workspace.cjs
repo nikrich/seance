@@ -10,7 +10,7 @@ const YAML = require('yaml');
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const KNOWN_KEYS = [
   'workspace', 'repos', 'max_builders', 'max_critics', 'max_planner',
-  'max_agent_minutes', 'attempt_cap', 'models', 'sleep',
+  'max_agent_minutes', 'attempt_cap', 'models', 'sleep', 'inbox_feeds',
 ];
 const DEFAULT_MODELS = { manager: 'haiku', planner: 'opus', builder: 'sonnet', critic: 'opus' };
 const DEFAULT_SLEEP = { active: 60, idle: 600 };
@@ -38,6 +38,7 @@ function parseConfig(text) {
     attempt_cap: doc.attempt_cap ?? 3,
     models: { ...DEFAULT_MODELS, ...(doc.models ?? {}) },
     sleep: { ...DEFAULT_SLEEP, ...(doc.sleep ?? {}) },
+    inbox_feeds: Array.isArray(doc.inbox_feeds) ? doc.inbox_feeds.map(String) : [],
     extra,
   };
 }
@@ -62,6 +63,7 @@ function configToYaml(model) {
     attempt_cap: model.attempt_cap,
     models: model.models,
     sleep: model.sleep,
+    ...(model.inbox_feeds?.length > 0 ? { inbox_feeds: model.inbox_feeds } : {}),
     ...Object.fromEntries(Object.entries(model.extra ?? {}).filter(([k]) => !KNOWN_KEYS.includes(k))),
   });
 }
@@ -89,6 +91,10 @@ function validateConfigModel(m) {
   }
   for (const k of ['active', 'idle']) {
     if (!Number.isInteger(m.sleep?.[k]) || m.sleep[k] < 1) errors.push(`sleep.${k} must be a positive integer`);
+  }
+  const feeds = Array.isArray(m.inbox_feeds) ? m.inbox_feeds : [];
+  if (feeds.some((f) => typeof f !== 'string' || !(f.startsWith('/') && f.length > 1))) {
+    errors.push('inbox_feeds entries must be absolute paths');
   }
   return errors;
 }

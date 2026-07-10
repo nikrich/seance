@@ -20,7 +20,7 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 - Story (`state/stories/<id>.md`) frontmatter: `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked, deps: [], oracle, branch, attempts, model_hint`.
 - Agent registry (`state/agents/<agent-id>.md`) frontmatter: `id, role: planner|builder|critic, pid, story, requirement, started_at (ISO8601 UTC), model`.
 - Question (`questions/*.md`) frontmatter: `id, story, requirement, status, asked_at` — written by planners/builders/critics per "The knowledge chain", resolved by the human in Poltergeist.
-- `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes.
+- `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes; optional `inbox_feeds: [..]` drained in step 1.
 
 ## Tick order
 
@@ -42,13 +42,33 @@ If `config.yaml` is missing: write `attention/no-config.md` ("workspace has no c
 
 For each `inbox/*.md` (skip directories):
 
-- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: speccing` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead, and clear `blocked_reason` from its frontmatter so it becomes spawnable again.
+- **Has `id:` frontmatter** → it's a requirement: create `state/requirements/<id>.md` with the same frontmatter plus `status: speccing` (keep the body verbatim). If a requirement with that id already exists, append the body to it as an `## Update <timestamp>` section instead, and clear `blocked_reason` from its frontmatter so it becomes spawnable again. Extra frontmatter keys a producer supplied (e.g. `category`, `priority`, `provenance` from a feed contract file) are part of "the same frontmatter" — copy them through untouched.
 - **No `id:` frontmatter** → it's a steering note. Apply it now:
   - "pause repo X" / "resume repo X" → add/remove X in `paused_repos` in `config.yaml`.
   - "priority <req-id> ..." / "<req-id> first" → set that requirement's `priority: high`.
   - "kill <story-id>" → find its agent in `state/agents/`, `kill <pid>`, treat as reaped in step 2.
   - Anything you cannot confidently map to one of the above → move it to `attention/` with a note that you didn't understand it. Never guess destructive actions.
 - Move the processed file to `inbox/processed/`.
+
+Then, for each directory in `config.yaml`'s optional `inbox_feeds: [..]`
+(skip silently if unset or a dir doesn't exist): list `*.md` files whose
+frontmatter has `id`, `title`, and `category` (the outbox contract —
+producers like Ouija publish these). For each, **claim by moving**:
+`mv "<feed>/<file>" inbox/` — rename is atomic; if the move fails another
+consumer won the race, skip it. If a requirement with that id already exists
+in this workspace — in `state/requirements/` OR already sitting in
+`inbox/` — do NOT claim; leave the file and write
+`attention/feed-collision-<id>.md` naming both. After a successful claim,
+write the receipt `<feed>/../claims/<id>.json`:
+`{"id": "<id>", "claimed_by": "seance/<workspace-name>", "claimed_at": "<ts>"}`
+(create the claims dir if needed). (`provenance` in the claimed file is the
+producer's pointer back to the source — a vault note path or URL — and needs
+no processing here.) Immediately after a successful claim, edit the claimed
+file IN `inbox/` before writing the receipt: rewrite its frontmatter
+`title:` to `[<category>] <original title>` (e.g. `title: [bug] Fix export
+crash`). Nothing else changes — `category`, `priority`, and `provenance`
+already live in the file's frontmatter and ride into the requirement
+verbatim via the normal promotion bullet on a later pass of this same step.
 
 ### 2. Reap
 
