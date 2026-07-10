@@ -66,7 +66,7 @@ If **dead**: move the registry file to `journal/agents/`. Then reconcile its wor
 
 ### 3. Kill stuck
 
-For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `kill <pid>`, then apply the dead-agent reconciliation from step 2 with ledger note `### Attempt N — killed (stuck > max_agent_minutes)`.
+For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `kill <pid>`, then apply the dead-agent reconciliation from step 2 with ledger note `### Attempt N — killed (<ts>)` followed by a bullet `- What failed: stuck past max_agent_minutes` (the parenthesized part of a ledger heading is ALWAYS the ISO timestamp — tools parse it).
 
 ### 4. Terminal states
 
@@ -132,7 +132,10 @@ model: <models.planner>
 
 While live builders < `max_builders`:
 
-- Eligible story: `status: pending`, every id in `deps` has status `merged` or `pr_open`, its `repo` not in `paused_repos`, its requirement not paused, and no `questions/*.md` with `status: open` names the story.
+- Eligible story — check MECHANICALLY, one story at a time, and show your work in the tick summary as `<story>: deps <dep>=<status>,… → eligible|skip`:
+  1. `status: pending`.
+  2. For EVERY id in `deps`: read that story file's `status` right now. ALL must be `merged` or `pr_open`. A dep that is `pending`, `building`, `verifying`, or `blocked` makes this story INELIGIBLE — even if builder slots are idle, even if the dep "should finish soon". Spawning a builder whose deps aren't ready wastes the spawn: it will block immediately without writing code.
+  3. Its `repo` not in `paused_repos`; its requirement not paused; no `questions/*.md` with `status: open` names the story.
 - Pick highest requirement priority, then fewest `attempts`, then oldest.
 - If none eligible, stop filling.
 - Set story `building`; spawn (same nohup pattern) with prompt `"Invoke the seance-builder skill for story <story-id>."`, model = story `model_hint` if set else `models.builder`; registry entry with `role: builder`, `story: <story-id>`.

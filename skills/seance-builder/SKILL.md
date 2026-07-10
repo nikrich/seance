@@ -59,6 +59,16 @@ and never invent an answer to an escalation-worthy question.
 
 ## Procedure
 
+### 0. Pre-flight: are your deps actually ready?
+
+Before touching git, read each dep story in your `deps` list. If ANY dep's
+`status` is not `merged` or `pr_open`, the manager spawned you early — this
+is its mistake, not a failed attempt of yours. Append a ledger note
+`### Spawned early (<ts>)` with `- dep <id> is <status>, not ready` but do
+**NOT** increment `attempts` and do not title it an Attempt (you did no
+work; burning attempts here walks an innocent story toward `blocked`). Set
+`status: pending` and exit.
+
 ### 1. Set up the worktree (idempotent — retries reuse it)
 
 If your story's requirement has `feature_branch` in its frontmatter
