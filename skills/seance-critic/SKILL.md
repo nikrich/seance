@@ -106,7 +106,13 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   git merge --no-ff <branch> -m "seance: merge <story-id>"
   ```
   Run `test_command` once more on `default_branch` post-merge. If it fails, revert the merge (`git reset --hard ORIG_HEAD`) and treat as REJECT with the failure output.
-- `pr`: `git push -u origin <branch>` then `gh pr create --fill --head <branch>`; record the PR URL in the ledger.
+- `pr`: `git push -u origin <branch>` then compose the PR explicitly (never `--fill`):
+  `gh pr create --title "🔮 <story title>" --body "<summary of what changed
+  and why, from the ledger>
+
+  ---
+  🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)" --head <branch>`;
+  record the PR URL in the ledger.
 - `feature-pr`: if the requirement's frontmatter has no `feature_branch`,
   fall back to the `pr` bullet above instead. Otherwise: merge `--no-ff`
   into the requirement's `feature_branch`. Run `test_command` once more on
@@ -116,8 +122,13 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   sibling critic just pushed to `feature_branch` first — `git pull --rebase`
   the feature branch and retry the merge once. Set story `status: merged`
   (merged-to-feature). Then, if EVERY story
-  of the requirement now has `status: merged`:
-  `gh pr create --fill --base <default_branch> --head <feature_branch>`,
+  of the requirement now has `status: merged`: compose the PR explicitly
+  (never `--fill`):
+  `gh pr create --title "🔮 <requirement title>" --body "<summary of what
+  changed and why, from the ledger>
+
+  ---
+  🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)" --base <default_branch> --head <feature_branch>`,
   record the URL as `feature_pr:` in the requirement frontmatter, and set
   the requirement `status: done` (the human merges the PR). If `gh pr
   create` fails because a PR for `feature_branch` already exists, fetch its

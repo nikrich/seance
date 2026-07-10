@@ -20,7 +20,7 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 - Story (`state/stories/<id>.md`) frontmatter: `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked, deps: [], oracle, branch, attempts, model_hint`.
 - Agent registry (`state/agents/<agent-id>.md`) frontmatter: `id, role: planner|builder|critic, pid, story, requirement, started_at (ISO8601 UTC), model`.
 - Question (`questions/*.md`) frontmatter: `id, story, requirement, status, asked_at` — written by planners/builders/critics per "The knowledge chain", resolved by the human in Poltergeist.
-- `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes.
+- `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes; optional `inbox_feeds: [..]` drained in step 1.
 
 ## Tick order
 
@@ -49,6 +49,20 @@ For each `inbox/*.md` (skip directories):
   - "kill <story-id>" → find its agent in `state/agents/`, `kill <pid>`, treat as reaped in step 2.
   - Anything you cannot confidently map to one of the above → move it to `attention/` with a note that you didn't understand it. Never guess destructive actions.
 - Move the processed file to `inbox/processed/`.
+
+Then, for each directory in `config.yaml`'s optional `inbox_feeds: [..]`
+(skip silently if unset or a dir doesn't exist): list `*.md` files whose
+frontmatter has `id`, `title`, and `category` (the outbox contract —
+producers like Ouija publish these). For each, **claim by moving**:
+`mv "<feed>/<file>" inbox/` — rename is atomic; if the move fails another
+consumer won the race, skip it. If a requirement with that `id` already
+exists in this workspace, do NOT claim — leave the file and write
+`attention/feed-collision-<id>.md` naming both. After a successful claim,
+write the receipt `<feed>/../claims/<id>.json`:
+`{"id": "<id>", "claimed_by": "seance/<workspace-name>", "claimed_at": "<ts>"}`
+(create the claims dir if needed). When the claimed file becomes a
+requirement, prefix its title with `[<category>]` and carry `priority`
+through; record `provenance` in the requirement body.
 
 ### 2. Reap
 
