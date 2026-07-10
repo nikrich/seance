@@ -538,6 +538,37 @@ function QuestionCard({ theme, api, ws, act, q }) {
   );
 }
 
+// A requirement being specced or decomposed has no stories, no inbox entry,
+// and no waiting-on-you card — without this row the board looks like the
+// summon did nothing for the minutes the planner is working.
+function InTheWorks({ theme, snap }) {
+  const reqs = (snap?.requirements ?? []).filter((r) => r.status === 'speccing' || r.status === 'planning');
+  if (reqs.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {reqs.map((r) => (
+        <div key={r.id} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: theme.vellum, border: `1px solid ${theme.hairline}`,
+          borderRadius: theme.rMd, padding: '9px 13px',
+        }}>
+          <span className="seance-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: theme.neon, flexShrink: 0 }} />
+          <span style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.ink2 }}>{r.id}</span>
+          <span style={{ fontSize: 12.5, color: theme.ink1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {r.title}
+          </span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontFamily: theme.fontMono, fontSize: 10.5, color: theme.ink2, whiteSpace: 'nowrap' }}>
+            {r.status === 'speccing'
+              ? 'the séance is researching & drafting the spec — review lands here'
+              : 'spec approved — decomposing into stories'}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WaitingOnYou({ theme, api, ws, act, snap }) {
   const specs = (snap?.requirements ?? []).filter((r) => r.status === 'spec_review');
   const questions = snap?.questions ?? [];
@@ -684,6 +715,7 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
       )}
 
       <WaitingOnYou theme={theme} api={api} ws={ws} act={act} snap={snap} />
+      <InTheWorks theme={theme} snap={snap} />
 
       {snap?.attention?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
