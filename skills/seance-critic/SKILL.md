@@ -114,10 +114,19 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   ---
   🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)
   EOF
-  gh pr create --title "🔮 <story title>" --body-file .seance-pr-body.md --head <branch>
+  gh pr create --title "<type>: <subject>" --body-file .seance-pr-body.md --head <branch>
   rm .seance-pr-body.md
   ```
   The heredoc delimiter (`'EOF'`) is quoted so `$(…)`/backtick sequences in the summary are never expanded. Titles go on the command line — strip any double quotes from the title text first; everything else belongs in the body file.
+
+  **Title format — strict conventional commit, or CI title checks reject it:**
+  `<type>: <subject>` where `<type>` maps from the work's category
+  (`bug`/`production-issue` → `fix`, `feature` → `feat`, `chore` → `chore`;
+  no category → `fix` for bug-shaped stories, else `feat`), and `<subject>`
+  **starts with a lowercase letter** (semantic-PR checks commonly enforce
+  `^(?![A-Z])`), keeps any ticket ids (e.g. `(DIGISURE-5552)`), and contains
+  no emoji — the 🔮 branding lives ONLY in the body footer. Applies to the
+  feature-pr title below too.
   record the PR URL in the ledger.
 - `feature-pr`: if the requirement's frontmatter has no `feature_branch`,
   fall back to the `pr` bullet above instead. Otherwise: merge `--no-ff`
@@ -138,7 +147,7 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   ---
   🔮 Summoned by [Séance](https://github.com/nikrich/seance) · powered by [Poltergeist](https://getpoltergeist.com)
   EOF
-  gh pr create --title "🔮 <requirement title>" --body-file .seance-pr-body.md --base <default_branch> --head <feature_branch>
+  gh pr create --title "<type>: <subject>" --body-file .seance-pr-body.md --base <default_branch> --head <feature_branch>
   rm .seance-pr-body.md
   ```
   The heredoc delimiter (`'EOF'`) is quoted so `$(…)`/backtick sequences in the summary are never expanded. Titles go on the command line — strip any double quotes from the title text first; everything else belongs in the body file.
