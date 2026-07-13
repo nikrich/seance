@@ -31,6 +31,7 @@ import {
   Sparkles,
   Square,
   Terminal,
+  Trash2,
   User,
   X,
 } from 'lucide-react';
@@ -554,6 +555,62 @@ function MdLite({ theme, text }) {
   );
 }
 
+// Destructive, two-step inline confirm — click "remove" once to arm it,
+// click "confirm remove" to fire. No modal, matching the attention-dismiss
+// button's lightweight inline pattern. Reused on every surface an active
+// requirement is represented (InTheWorks rows, SpecReviewCard, the active
+// requirements strip).
+function RemoveReqButton({ theme, api, ws, act, reqId }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        title={`remove ${reqId} — kills its running agents`}
+        onClick={() => setConfirming(true)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+          background: 'transparent', border: `1px solid ${theme.hairline2}`,
+          color: theme.ink2, borderRadius: theme.rPill,
+          padding: '2px 10px', fontFamily: theme.fontMono, fontSize: 10.5, flexShrink: 0,
+        }}
+      >
+        <Trash2 size={11} /> remove
+      </button>
+    );
+  }
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={async () => {
+          await act(() => api.ipc.invoke('requirement:remove', ws, reqId));
+          setConfirming(false);
+        }}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+          background: theme.oxblood, border: '1px solid transparent', fontWeight: 600,
+          color: '#FFF', borderRadius: theme.rPill,
+          padding: '2px 10px', fontFamily: theme.fontMono, fontSize: 10.5,
+        }}
+      >
+        <Skull size={11} /> confirm remove
+      </button>
+      <button
+        type="button"
+        title="cancel"
+        onClick={() => setConfirming(false)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', cursor: 'pointer',
+          background: 'transparent', border: 'none', color: theme.ink3, padding: '2px 4px',
+        }}
+      >
+        <X size={11} />
+      </button>
+    </div>
+  );
+}
+
 function SpecReviewCard({ theme, api, ws, act, req }) {
   const [text, setText] = useState(req.spec);
   const [feedback, setFeedback] = useState('');
@@ -587,7 +644,7 @@ function SpecReviewCard({ theme, api, ws, act, req }) {
             <MdLite theme={theme} text={text} />
           </div>
         )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 10, alignItems: 'center' }}>
           <input style={{ ...field, fontFamily: 'inherit', fontSize: 12.5 }}
             placeholder="feedback for the planner (required to request changes)"
             value={feedback} onChange={(e) => setFeedback(e.target.value)} />
@@ -599,6 +656,7 @@ function SpecReviewCard({ theme, api, ws, act, req }) {
             onClick={() => act(() => api.ipc.invoke('spec:approve', ws, req.id, text))}>
             approve spec
           </Btn>
+          <RemoveReqButton theme={theme} api={api} ws={ws} act={act} reqId={req.id} />
         </div>
       </div>
     </Panel>
@@ -639,7 +697,7 @@ function QuestionCard({ theme, api, ws, act, q }) {
 // A requirement being specced or decomposed has no stories, no inbox entry,
 // and no waiting-on-you card — without this row the board looks like the
 // summon did nothing for the minutes the planner is working.
-function InTheWorks({ theme, snap }) {
+function InTheWorks({ theme, api, ws, act, snap }) {
   const reqs = (snap?.requirements ?? []).filter((r) => r.status === 'speccing' || r.status === 'planning');
   if (reqs.length === 0) return null;
   return (
@@ -661,6 +719,37 @@ function InTheWorks({ theme, snap }) {
               ? 'the séance is researching & drafting the spec — review lands here'
               : 'spec approved — decomposing into stories'}
           </span>
+          <RemoveReqButton theme={theme} api={api} ws={ws} act={act} reqId={r.id} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// `planned` requirements (and any other active requirement not already
+// surfaced by InTheWorks/SpecReviewCard) have no card of their own today —
+// their only footprint is story columns. This strip is their per-requirement
+// handle for removal.
+function ActiveRequirements({ theme, api, ws, act, snap }) {
+  const shownElsewhere = new Set(['speccing', 'planning', 'spec_review']);
+  const reqs = (snap?.requirements ?? []).filter(
+    (r) => r.status !== 'done' && r.status !== 'removed' && !shownElsewhere.has(r.status),
+  );
+  if (reqs.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <Eyebrow theme={theme}>active requirements · {reqs.length}</Eyebrow>
+      {reqs.map((r) => (
+        <div key={r.id} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: theme.vellum, border: `1px solid ${theme.hairline}`,
+          borderRadius: theme.rMd, padding: '9px 13px',
+        }}>
+          <span style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.ink2 }}>{r.id}</span>
+          <span style={{ fontSize: 12.5, color: theme.ink1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+            {r.title}
+          </span>
+          <RemoveReqButton theme={theme} api={api} ws={ws} act={act} reqId={r.id} />
         </div>
       ))}
     </div>
@@ -837,7 +926,8 @@ function Board({ theme, snap, hb, ws, act, api, form, setForm, steerText, setSte
       )}
 
       <WaitingOnYou theme={theme} api={api} ws={ws} act={act} snap={snap} />
-      <InTheWorks theme={theme} snap={snap} />
+      <InTheWorks theme={theme} api={api} ws={ws} act={act} snap={snap} />
+      <ActiveRequirements theme={theme} api={api} ws={ws} act={act} snap={snap} />
 
       {snap?.attention?.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

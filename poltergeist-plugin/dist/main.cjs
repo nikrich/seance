@@ -101,6 +101,7 @@ var require_state_files = __commonJS({
         role: String(attrs.role ?? ""),
         pid: Number(attrs.pid ?? 0),
         story: attrs.story == null ? null : String(attrs.story),
+        requirement: attrs.requirement == null ? null : String(attrs.requirement),
         startedAt: String(attrs.started_at ?? ""),
         alive: pidAlive2(Number(attrs.pid ?? 0))
       }));
@@ -225,7 +226,69 @@ ${String(opts.feedback ?? "").trim()}
       const newHead = head.replace(/\n---$/, "\nfeature_pr_ack: true\n---");
       writeFileSync2(p, newHead + rest);
     }
-    module2.exports = { parseFrontmatter: parseFrontmatter2, readWorkspaceStatus: readWorkspaceStatus2, pidAlive: pidAlive2, dismissAttention: dismissAttention2, answerQuestion: answerQuestion2, writeSpec: writeSpec2, ackFeaturePr: ackFeaturePr2 };
+    function agentsForRequirement2(agents, stories, reqId) {
+      const storyIds = new Set(stories.filter((s) => s.requirement === reqId).map((s) => s.id));
+      return agents.filter((a) => a.requirement === reqId || a.story != null && storyIds.has(a.story));
+    }
+    function removeRequirement2(wsPath, reqId) {
+      if (typeof reqId !== "string" || !REQ_ID_RE2.test(reqId)) {
+        throw new Error(`invalid requirement id: ${reqId}`);
+      }
+      const p = join2(wsPath, "state", "requirements", `${reqId}.md`);
+      if (!existsSync2(p)) throw new Error(`requirement not found: ${reqId}`);
+      const raw = readFileSync2(p, "utf-8");
+      const { head, rest } = splitFrontmatter(raw, `requirement ${reqId}`);
+      const statusMatch = head.match(/^status: (.*)$/m);
+      const status = statusMatch ? statusMatch[1].trim() : "";
+      if (status === "removed") return { removed: true, storyIds: [] };
+      if (status === "done") throw new Error(`requirement ${reqId} is done and cannot be removed`);
+      writeFileSync2(p, head.replace(/^status: .*$/m, "status: removed") + rest);
+      const storyIds = [];
+      const storiesDir = join2(wsPath, "state", "stories");
+      if (existsSync2(storiesDir)) {
+        for (const file of readdirSync2(storiesDir)) {
+          if (!file.endsWith(".md")) continue;
+          const storyPath = join2(storiesDir, file);
+          const storyRaw = readFileSync2(storyPath, "utf-8");
+          const { attrs } = parseFrontmatter2(storyRaw);
+          if (String(attrs.requirement ?? "") !== reqId) continue;
+          const { head: storyHead, rest: storyRest } = splitFrontmatter(storyRaw, `story ${attrs.id}`);
+          writeFileSync2(storyPath, storyHead.replace(/^status: .*$/m, "status: removed") + storyRest);
+          storyIds.push(String(attrs.id ?? ""));
+        }
+      }
+      return { removed: true, storyIds };
+    }
+    function defaultKill(pid) {
+      try {
+        process.kill(pid);
+      } catch {
+      }
+    }
+    function reapAgents2(wsPath, agentIds, kill = defaultKill) {
+      const agentsDir = join2(wsPath, "state", "agents");
+      const journalDir = join2(wsPath, "journal", "agents");
+      for (const id of agentIds) {
+        const src = join2(agentsDir, `${id}.md`);
+        if (!existsSync2(src)) continue;
+        const { attrs } = parseFrontmatter2(readFileSync2(src, "utf-8"));
+        kill(Number(attrs.pid ?? 0));
+        mkdirSync2(journalDir, { recursive: true });
+        renameSync(src, join2(journalDir, `${id}.md`));
+      }
+    }
+    module2.exports = {
+      parseFrontmatter: parseFrontmatter2,
+      readWorkspaceStatus: readWorkspaceStatus2,
+      pidAlive: pidAlive2,
+      dismissAttention: dismissAttention2,
+      answerQuestion: answerQuestion2,
+      writeSpec: writeSpec2,
+      ackFeaturePr: ackFeaturePr2,
+      agentsForRequirement: agentsForRequirement2,
+      removeRequirement: removeRequirement2,
+      reapAgents: reapAgents2
+    };
   }
 });
 
@@ -8099,7 +8162,17 @@ var {
 } = require("node:fs");
 var { homedir } = require("node:os");
 var { join, resolve } = require("node:path");
-var { readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec, ackFeaturePr } = require_state_files();
+var {
+  readWorkspaceStatus,
+  pidAlive,
+  dismissAttention,
+  answerQuestion,
+  writeSpec,
+  ackFeaturePr,
+  agentsForRequirement,
+  removeRequirement,
+  reapAgents
+} = require_state_files();
 var { parseFrontmatter } = require_state_files();
 var { readOverview } = require_overview();
 var { buildActivity } = require_activity();
@@ -8147,6 +8220,18 @@ function wakeHeartbeat(ctx, ws) {
   if (!running) return;
   execFile("pkill", ["-P", String(pid), "-x", "sleep"], () => {
   });
+}
+function killAgentTree(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    execFile("pkill", ["-P", String(pid)], () => {
+    });
+  } catch {
+  }
+  try {
+    process.kill(pid);
+  } catch {
+  }
 }
 function activate(ctx) {
   ctxRef = ctx;
@@ -8219,6 +8304,19 @@ ${body.trim()}
   ctx.ipc.handle("feature-pr:ack", (wsPath, reqId) => {
     const ws = assertWorkspace(wsPath);
     ackFeaturePr(ws, reqId);
+    return { ok: true };
+  });
+  ctx.ipc.handle("requirement:remove", (wsPath, reqId) => {
+    const ws = assertWorkspace(wsPath);
+    if (typeof reqId !== "string" || !REQ_ID_RE.test(reqId)) {
+      throw new Error(`invalid requirement id: ${reqId}`);
+    }
+    const snap = readWorkspaceStatus(ws);
+    const affected = agentsForRequirement(snap.agents, snap.stories, reqId);
+    removeRequirement(ws, reqId);
+    reapAgents(ws, affected.map((a) => a.id), killAgentTree);
+    wakeHeartbeat(ctx, ws);
+    ctx.log("requirement removed", reqId, "\u2014 killed agents:", affected.map((a) => a.id).join(", ") || "(none)");
     return { ok: true };
   });
   ctx.ipc.handle("steer", (wsPath, text) => {

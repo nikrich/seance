@@ -21,7 +21,17 @@ const {
 } = require('node:fs');
 const { homedir } = require('node:os');
 const { join, resolve } = require('node:path');
-const { readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec, ackFeaturePr } = require('./lib/state-files.cjs');
+const {
+  readWorkspaceStatus,
+  pidAlive,
+  dismissAttention,
+  answerQuestion,
+  writeSpec,
+  ackFeaturePr,
+  agentsForRequirement,
+  removeRequirement,
+  reapAgents,
+} = require('./lib/state-files.cjs');
 const { parseFrontmatter } = require('./lib/state-files.cjs');
 const { readOverview } = require('./lib/overview.cjs');
 const { buildActivity } = require('./lib/activity.cjs');
@@ -80,6 +90,24 @@ function wakeHeartbeat(ctx, ws) {
   const { running, pid } = heartbeatStatus(ctx, ws);
   if (!running) return;
   execFile('pkill', ['-P', String(pid), '-x', 'sleep'], () => {});
+}
+
+// Children-first kill, best-effort: the same pattern the manager's "kill
+// stuck" step uses. An already-dead pid (or a pid with no children) is
+// harmless — this must never throw, since by the time it runs the
+// requirement is already marked `removed`.
+function killAgentTree(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    execFile('pkill', ['-P', String(pid)], () => {});
+  } catch {
+    // best-effort
+  }
+  try {
+    process.kill(pid);
+  } catch {
+    // already dead
+  }
 }
 
 function activate(ctx) {
@@ -158,6 +186,22 @@ function activate(ctx) {
   ctx.ipc.handle('feature-pr:ack', (wsPath, reqId) => {
     const ws = assertWorkspace(wsPath);
     ackFeaturePr(ws, reqId);
+    return { ok: true };
+  });
+
+  ctx.ipc.handle('requirement:remove', (wsPath, reqId) => {
+    const ws = assertWorkspace(wsPath);
+    if (typeof reqId !== 'string' || !REQ_ID_RE.test(reqId)) {
+      throw new Error(`invalid requirement id: ${reqId}`);
+    }
+    // capture affected agents' pids while they're still live — removeRequirement
+    // flips state first, and a snapshot read after that would already be stale
+    const snap = readWorkspaceStatus(ws);
+    const affected = agentsForRequirement(snap.agents, snap.stories, reqId);
+    removeRequirement(ws, reqId); // guard errors (done/already-removed) propagate as-is
+    reapAgents(ws, affected.map((a) => a.id), killAgentTree);
+    wakeHeartbeat(ctx, ws);
+    ctx.log('requirement removed', reqId, '— killed agents:', affected.map((a) => a.id).join(', ') || '(none)');
     return { ok: true };
   });
 
