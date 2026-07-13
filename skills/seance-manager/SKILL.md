@@ -16,8 +16,8 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 
 ## State you work with
 
-- Requirement (`state/requirements/<id>.md`) frontmatter: `id, title, status: inbox|speccing|spec_review|planning|planned|done, priority: low|normal|high`, optional `paused: true`, optional `blocked_reason`.
-- Story (`state/stories/<id>.md`) frontmatter: `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked, deps: [], oracle, branch, attempts, model_hint`.
+- Requirement (`state/requirements/<id>.md`) frontmatter: `id, title, status: inbox|speccing|spec_review|planning|planned|done|removed, priority: low|normal|high`, optional `paused: true`, optional `blocked_reason`.
+- Story (`state/stories/<id>.md`) frontmatter: `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked|removed, deps: [], oracle, branch, attempts, model_hint`.
 - Agent registry (`state/agents/<agent-id>.md`) frontmatter: `id, role: planner|builder|critic, pid, story, requirement, started_at (ISO8601 UTC), model`.
 - Question (`questions/*.md`) frontmatter: `id, story, requirement, status, asked_at` — written by planners/builders/critics per "The knowledge chain", resolved by the human in Poltergeist.
 - `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes; optional `inbox_feeds: [..]` drained in step 1. Optional `autonomy.auto_approve_specs` (absent → `false`) — read in step 5.
@@ -77,7 +77,16 @@ verbatim via the normal promotion bullet on a later pass of this same step.
 
 ### 2. Reap
 
-For each `state/agents/<agent-id>.md`, check liveness:
+First, kill-on-sight: for each **alive** agent whose `requirement` is
+`removed`, or whose `story` names a story with status `removed` — this
+catches any agent the plugin's best-effort synchronous kill missed at
+removal time (e.g. heartbeat was down) — `pkill -P <pid>; kill <pid>`
+(children first, same pattern as step 3), then move its registry file to
+`journal/agents/`. Do not increment attempts or touch the (already
+`removed`) story status, and do not run the dead-agent reconciliation
+bullets below for it — a removed requirement is authoritative and final.
+
+For each remaining `state/agents/<agent-id>.md`, check liveness:
 
 ```bash
 kill -0 <pid> 2>/dev/null && echo alive || echo dead
@@ -97,10 +106,12 @@ For each **alive** agent: if `started_at` is older than `max_agent_minutes`, `pk
 
 - Any story with `attempts >= attempt_cap` and status `pending`, unless a `questions/*.md` with `status: open` names it (it's waiting on the human, not failing) → set `blocked`; write `attention/<story-id>.md` containing the story title and its full attempts ledger.
 - (integration `merge`/`pr` repos) Any requirement whose stories all have
-  status `merged` or `pr_open` → set requirement `done`.
+  status `merged` or `pr_open` → set requirement `done`. Skip requirements
+  that are already `removed` — a removed requirement must never flip to
+  `done`.
 - (feature-pr repos) the critic sets the requirement `done` when it opens
   the feature PR — do not mark it done on story statuses alone.
-- (feature-pr repos) if every story of a requirement is `merged`, the requirement's frontmatter has no `feature_pr`, and no live critic references any of its stories → write `attention/<req-id>-feature-pr.md` titled "feature PR never opened for <req-id>" containing: "all stories merged but the feature PR was never opened — spawn cause: critic died or gh failed; re-run: open the PR manually or requeue the last story to verifying." Keeps the stall loud instead of silent.
+- (feature-pr repos) if every story of a requirement is `merged`, the requirement's frontmatter has no `feature_pr`, and no live critic references any of its stories → write `attention/<req-id>-feature-pr.md` titled "feature PR never opened for <req-id>" containing: "all stories merged but the feature PR was never opened — spawn cause: critic died or gh failed; re-run: open the PR manually or requeue the last story to verifying." Keeps the stall loud instead of silent. Skip `removed` requirements — a removed requirement must not raise a missing-feature-PR attention item.
 
 ### 4b. Process answered questions
 
@@ -151,6 +162,10 @@ When `autonomy.auto_approve_specs` is `false` or absent, none of the above
 auto-approval runs: `spec_review` requirements are waiting on the human —
 never spawn for them, exactly as today.
 
+Likewise, never spawn a planner for a `removed` requirement (it is terminal,
+like `done`/`spec_review` — not eligible) — a removed requirement is done
+being worked on, permanently.
+
 ```bash
 AGENT_ID="planner-<req-id>-$RANDOM"
 nohup sh -c 'claude -p "<the DRAFT THE SPEC or DECOMPOSE prompt above, for <req-id>>" \
@@ -185,7 +200,7 @@ model: <models.planner>
 While live builders < `max_builders`:
 
 - Eligible story — check MECHANICALLY, one story at a time, and show your work in the tick summary as `<story>: deps <dep>=<status>,… → eligible|skip`:
-  1. `status: pending`.
+  1. `status: pending` (a `removed` story is never eligible — skip it).
   2. For EVERY id in `deps`: read that story file's `status` right now. ALL must be `merged` or `pr_open`. A dep that is `pending`, `building`, `verifying`, or `blocked` makes this story INELIGIBLE — even if builder slots are idle, even if the dep "should finish soon". Spawning a builder whose deps aren't ready wastes the spawn: it will block immediately without writing code.
   3. Its `repo` not in `paused_repos`; its requirement not paused; no `questions/*.md` with `status: open` names the story.
 - Pick highest requirement priority, then fewest `attempts`, then oldest.
@@ -194,7 +209,7 @@ While live builders < `max_builders`:
 
 ### 7. Spawn critics
 
-For each story with `status: verifying` that has NO live agent referencing it, while live critics < `max_critics`: spawn with prompt `"Invoke the seance-critic skill for story <story-id>."`, model `models.critic`, registry `role: critic`.
+For each story with `status: verifying` that has NO live agent referencing it, while live critics < `max_critics`: spawn with prompt `"Invoke the seance-critic skill for story <story-id>."`, model `models.critic`, registry `role: critic`. Never spawn a critic for a `removed` story — removal is authoritative and final, even if the story was `verifying` at removal time.
 
 ### 8. Journal + digest
 
