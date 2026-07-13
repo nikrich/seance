@@ -7916,10 +7916,12 @@ var require_workspace = __commonJS({
       "attempt_cap",
       "models",
       "sleep",
-      "inbox_feeds"
+      "inbox_feeds",
+      "autonomy"
     ];
     var DEFAULT_MODELS = { manager: "haiku", planner: "opus", builder: "sonnet", critic: "opus" };
     var DEFAULT_SLEEP = { active: 60, idle: 600 };
+    var DEFAULT_AUTONOMY = { auto_approve_specs: false, auto_merge: false };
     function parseConfig2(text) {
       const doc = YAML.parse(text) ?? {};
       const repos = Object.entries(doc.repos ?? {}).map(([name, r]) => ({
@@ -7944,6 +7946,10 @@ var require_workspace = __commonJS({
         models: { ...DEFAULT_MODELS, ...doc.models ?? {} },
         sleep: { ...DEFAULT_SLEEP, ...doc.sleep ?? {} },
         inbox_feeds: Array.isArray(doc.inbox_feeds) ? doc.inbox_feeds.map(String) : [],
+        autonomy: {
+          auto_approve_specs: doc.autonomy?.auto_approve_specs === true,
+          auto_merge: doc.autonomy?.auto_merge === true
+        },
         extra
       };
     }
@@ -7965,6 +7971,7 @@ var require_workspace = __commonJS({
         max_planner: model.max_planner,
         max_agent_minutes: model.max_agent_minutes,
         attempt_cap: model.attempt_cap,
+        autonomy: model.autonomy ?? DEFAULT_AUTONOMY,
         models: model.models,
         sleep: model.sleep,
         ...model.inbox_feeds?.length > 0 ? { inbox_feeds: model.inbox_feeds } : {},
@@ -7998,6 +8005,11 @@ var require_workspace = __commonJS({
       const feeds = Array.isArray(m.inbox_feeds) ? m.inbox_feeds : [];
       if (feeds.some((f) => typeof f !== "string" || !(f.startsWith("/") && f.length > 1))) {
         errors.push("inbox_feeds entries must be absolute paths");
+      }
+      for (const k of ["auto_approve_specs", "auto_merge"]) {
+        if (m.autonomy?.[k] !== void 0 && typeof m.autonomy[k] !== "boolean") {
+          errors.push(`autonomy.${k} must be a boolean`);
+        }
       }
       return errors;
     }
@@ -8067,7 +8079,7 @@ var require_workspace = __commonJS({
       const clones = await syncRepos2(wsPath, config, runGit);
       return { wsPath, clones };
     }
-    module2.exports = { NAME_RE, parseConfig: parseConfig2, configToYaml: configToYaml2, validateConfigModel: validateConfigModel2, scaffoldWorkspace: scaffoldWorkspace2, syncRepos: syncRepos2, ensureMcpConfig: ensureMcpConfig2, ensureAgentSettings: ensureAgentSettings2 };
+    module2.exports = { NAME_RE, parseConfig: parseConfig2, configToYaml: configToYaml2, validateConfigModel: validateConfigModel2, scaffoldWorkspace: scaffoldWorkspace2, syncRepos: syncRepos2, ensureMcpConfig: ensureMcpConfig2, ensureAgentSettings: ensureAgentSettings2, DEFAULT_AUTONOMY };
   }
 });
 

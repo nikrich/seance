@@ -175,6 +175,7 @@ const BLANK_CONFIG = {
   models: { manager: 'haiku', planner: 'opus', builder: 'sonnet', critic: 'opus' },
   sleep: { active: 60, idle: 600 },
   inbox_feeds: [],
+  autonomy: { auto_approve_specs: false, auto_merge: false },
 };
 const MODEL_OPTIONS = ['haiku', 'sonnet', 'opus'];
 const repoNameFromUrl = (url) => (url.split('/').pop() ?? '').replace(/\.git$/, '').trim();
@@ -337,6 +338,19 @@ function WorkspaceForm({ theme, mode, initial, busy, error, cloneResults, onSubm
           </div>
         </Panel>
       </div>
+
+      <Panel theme={theme} title="autonomy" subtitle="opt-in — remove the human gates">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+          <Field theme={theme} label="auto-approve specs">
+            <Segmented theme={theme} value={(cfg.autonomy?.auto_approve_specs ?? false) ? 'on' : 'off'} options={['off', 'on']}
+              onChange={(v) => set({ autonomy: { ...cfg.autonomy, auto_approve_specs: v === 'on' } })} disabled={busy} />
+          </Field>
+          <Field theme={theme} label="auto-merge PRs">
+            <Segmented theme={theme} value={(cfg.autonomy?.auto_merge ?? false) ? 'on' : 'off'} options={['off', 'on']}
+              onChange={(v) => set({ autonomy: { ...cfg.autonomy, auto_merge: v === 'on' } })} disabled={busy} />
+          </Field>
+        </div>
+      </Panel>
 
       {(error || clientErrors.length > 0) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`, borderRadius: theme.rMd, padding: '9px 13px', fontSize: 12.5, color: theme.pillOxbloodFg }}>
