@@ -108,6 +108,7 @@ function readWorkspaceStatus(wsPath) {
     role: String(attrs.role ?? ''),
     pid: Number(attrs.pid ?? 0),
     story: attrs.story == null ? null : String(attrs.story),
+    requirement: attrs.requirement == null ? null : String(attrs.requirement),
     startedAt: String(attrs.started_at ?? ''),
     alive: pidAlive(Number(attrs.pid ?? 0)),
   }));
@@ -263,4 +264,85 @@ function ackFeaturePr(wsPath, reqId) {
   writeFileSync(p, newHead + rest);
 }
 
-module.exports = { parseFrontmatter, readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec, ackFeaturePr };
+// Pure: given the arrays readWorkspaceStatus returns, pick the agents that
+// belong to a requirement — directly (the planner's `requirement` field) or
+// via a story of that requirement (builder/critic `story` field).
+function agentsForRequirement(agents, stories, reqId) {
+  const storyIds = new Set(stories.filter((s) => s.requirement === reqId).map((s) => s.id));
+  return agents.filter((a) => a.requirement === reqId || (a.story != null && storyIds.has(a.story)));
+}
+
+// Terminal, one-way transition to `removed` for a requirement and every one
+// of its stories — same guard discipline as writeSpec: validate the id,
+// assert the current status, surgical status-line replace only.
+function removeRequirement(wsPath, reqId) {
+  if (typeof reqId !== 'string' || !REQ_ID_RE.test(reqId)) {
+    throw new Error(`invalid requirement id: ${reqId}`);
+  }
+  const p = join(wsPath, 'state', 'requirements', `${reqId}.md`);
+  if (!existsSync(p)) throw new Error(`requirement not found: ${reqId}`);
+  const raw = readFileSync(p, 'utf-8');
+  const { head, rest } = splitFrontmatter(raw, `requirement ${reqId}`);
+  const statusMatch = head.match(/^status: (.*)$/m);
+  const status = statusMatch ? statusMatch[1].trim() : '';
+  // A stale snapshot / double-click re-firing remove on an already-removed
+  // requirement must be harmless, not a double-mutation.
+  if (status === 'removed') return { removed: true, storyIds: [] };
+  if (status === 'done') throw new Error(`requirement ${reqId} is done and cannot be removed`);
+
+  writeFileSync(p, head.replace(/^status: .*$/m, 'status: removed') + rest);
+
+  const storyIds = [];
+  const storiesDir = join(wsPath, 'state', 'stories');
+  if (existsSync(storiesDir)) {
+    for (const file of readdirSync(storiesDir)) {
+      if (!file.endsWith('.md')) continue;
+      const storyPath = join(storiesDir, file);
+      const storyRaw = readFileSync(storyPath, 'utf-8');
+      const { attrs } = parseFrontmatter(storyRaw);
+      if (String(attrs.requirement ?? '') !== reqId) continue;
+      const { head: storyHead, rest: storyRest } = splitFrontmatter(storyRaw, `story ${attrs.id}`);
+      writeFileSync(storyPath, storyHead.replace(/^status: .*$/m, 'status: removed') + storyRest);
+      storyIds.push(String(attrs.id ?? ''));
+    }
+  }
+  return { removed: true, storyIds };
+}
+
+function defaultKill(pid) {
+  try {
+    process.kill(pid);
+  } catch {
+    // already dead — best-effort
+  }
+}
+
+// Move-not-delete reaping of agent registry files, mirroring dismissAttention
+// → journal/agents/. Kills each agent's pid first (children-first killers are
+// the caller's job to inject) so this stays unit-testable without spawning
+// real processes.
+function reapAgents(wsPath, agentIds, kill = defaultKill) {
+  const agentsDir = join(wsPath, 'state', 'agents');
+  const journalDir = join(wsPath, 'journal', 'agents');
+  for (const id of agentIds) {
+    const src = join(agentsDir, `${id}.md`);
+    if (!existsSync(src)) continue; // already reaped — idempotent alongside removeRequirement
+    const { attrs } = parseFrontmatter(readFileSync(src, 'utf-8'));
+    kill(Number(attrs.pid ?? 0));
+    mkdirSync(journalDir, { recursive: true });
+    renameSync(src, join(journalDir, `${id}.md`));
+  }
+}
+
+module.exports = {
+  parseFrontmatter,
+  readWorkspaceStatus,
+  pidAlive,
+  dismissAttention,
+  answerQuestion,
+  writeSpec,
+  ackFeaturePr,
+  agentsForRequirement,
+  removeRequirement,
+  reapAgents,
+};
