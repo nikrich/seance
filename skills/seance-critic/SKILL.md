@@ -55,7 +55,7 @@ and never invent an answer to an escalation-worthy question.
 
 - The story: `state/stories/<story-id>.md` (`repo`, `branch`, `oracle`, `## Task` acceptance criteria, ledger — including what the builder flagged for you).
 - The story's requirement: `state/requirements/<requirement>.md` — `feature-pr` mode reads/writes `feature_branch` and `feature_pr` here, and needs every sibling story's `status` from `state/stories/`.
-- `config.yaml`: `repos.<repo>.{default_branch,integration,test_command}`.
+- `config.yaml`: `repos.<repo>.{default_branch,integration,test_command}`. Optional `autonomy.auto_merge` (absent → `false`) — read before integrating; see "APPROVE" below. Independent of `autonomy.auto_approve_specs` (the manager's flag) — this skill reads only `auto_merge`.
 
 ## Procedure
 
@@ -97,7 +97,10 @@ cd "worktrees/<story-id>-critic"
 
 Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> worktree remove ../../worktrees/<story-id>-critic --force`); leave the builder's. Do NOT increment `attempts` (the builder does). Exit.
 
-**APPROVE** — integrate per `repos.<repo>.integration`:
+**APPROVE** — integrate per `repos.<repo>.integration`. First read
+`autonomy.auto_merge` from `config.yaml` (absent → `false`) — it only
+changes the `pr` and `feature-pr` bullets below; `merge` mode is already
+autonomous and is unaffected by it either way.
 
 - `merge`:
   ```bash
@@ -128,6 +131,12 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   no emoji — the 🔮 branding lives ONLY in the body footer. Applies to the
   feature-pr title below too.
   record the PR URL in the ledger.
+
+  When `autonomy.auto_merge` is `false` or absent: stop here — current
+  behavior verbatim, story ends this step at `pr_open`. When it is `true`:
+  merge the PR now (see "Auto-merge" below); on a successful merge, set
+  story `status: merged` instead of `pr_open`. On a failed merge, do NOT set
+  `merged` or `pr_open` — follow "Auto-merge" failure handling instead.
 - `feature-pr`: if the requirement's frontmatter has no `feature_branch`,
   fall back to the `pr` bullet above instead. Otherwise: merge `--no-ff`
   into the requirement's `feature_branch`. Run `test_command` once more on
@@ -151,16 +160,55 @@ Set story `status: pending`. Remove YOUR worktree only (`git -C repos/<repo> wor
   rm .seance-pr-body.md
   ```
   The heredoc delimiter (`'EOF'`) is quoted so `$(…)`/backtick sequences in the summary are never expanded. Titles go on the command line — strip any double quotes from the title text first; everything else belongs in the body file.
-  record the URL as `feature_pr:` in the requirement frontmatter, and set
-  the requirement `status: done` (the human merges the PR). If `gh pr
+  record the URL as `feature_pr:` in the requirement frontmatter. If `gh pr
   create` fails because a PR for `feature_branch` already exists, fetch its
   URL instead (`gh pr view <feature_branch> --json url`), record that as
   `feature_pr`, and treat as success.
+
+  When `autonomy.auto_merge` is `false` or absent: set the requirement
+  `status: done` (the human merges the PR) — current behavior verbatim.
+  When it is `true`: merge the feature PR now (see "Auto-merge" below)
+  instead of leaving it for the human; only on a successful merge set the
+  requirement `status: done` — this `done` is now via an actual merge, not
+  human-merge. On a failed merge, do NOT set the requirement `done` —
+  follow "Auto-merge" failure handling instead; the requirement stays at
+  its current status with the feature PR left open for the next tick or a
+  human to retry.
+
   Conflicts merging into the feature branch: REJECT with report
   "rebase onto <feature_branch> and resolve conflicts in <files>", exactly
   like the default_branch conflict rule.
 
-Then: append `### Attempt <N> — approved (<timestamp>)` + one line on what you checked; set story `status: merged` (or `pr_open`); clean up both worktrees (`git worktree remove` yours and the builder's, `--force` if needed) and for `merge` mode delete the story branch (`git branch -d <branch>`). Exit.
+Then: append `### Attempt <N> — approved (<timestamp>)` + one line on what you checked; set story `status: merged` (or `pr_open` for `pr`-mode without auto-merge); clean up both worktrees (`git worktree remove` yours and the builder's, `--force` if needed) and for `merge` mode delete the story branch (`git branch -d <branch>`). Exit.
+
+### Auto-merge (`autonomy.auto_merge: true`)
+
+Used by the `pr` and `feature-pr` bullets above once the per-story or
+per-requirement PR is open. Prefer GitHub's native auto-merge with squash so
+a PR with pending required checks lands the moment they go green instead of
+blocking you:
+
+```bash
+gh pr merge --auto --squash <pr-url-or-branch>
+```
+
+If the repo doesn't permit `--auto` (branch protection has it disabled),
+fall back to a direct merge once checks are already green:
+
+```bash
+gh pr merge --squash <pr-url-or-branch>
+```
+
+Respect the repo's required status checks in both cases — never merge
+around them.
+
+**Failure is never a silent success.** If the merge is blocked by
+unmet/failed required checks, hits a merge conflict, or the `gh pr merge`
+call itself fails: do NOT mark the story `merged` (nor, for `feature-pr`,
+the requirement `done`). Surface it exactly as a conflict is surfaced today
+— reject-with-report and/or an `attention/` item, reusing the "Merge
+conflicts" rule's shape below — and leave the story/requirement out of a
+terminal `merged`/`done` state so the next tick (or a human) can retry.
 
 ### Merge conflicts
 
