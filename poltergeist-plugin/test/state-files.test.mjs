@@ -6,7 +6,17 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { parseFrontmatter, readWorkspaceStatus, dismissAttention, answerQuestion, writeSpec, ackFeaturePr } = require('../src/lib/state-files.cjs');
+const {
+  parseFrontmatter,
+  readWorkspaceStatus,
+  dismissAttention,
+  answerQuestion,
+  writeSpec,
+  ackFeaturePr,
+  agentsForRequirement,
+  removeRequirement,
+  reapAgents,
+} = require('../src/lib/state-files.cjs');
 
 test('dismissAttention: moves the item out of attention/, keeps an audit copy', () => {
   const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
@@ -247,4 +257,121 @@ test('ackFeaturePr: sets feature_pr_ack and readWorkspaceStatus reflects it; thr
   assert.throws(() => ackFeaturePr(ws, 'REQ-13'), /has no feature_pr/);
   assert.throws(() => ackFeaturePr(ws, 'bad id!'), /invalid requirement id/);
   assert.throws(() => ackFeaturePr(ws, 'REQ-99'), /not found/);
+});
+
+test('removeRequirement: flips the requirement and its stories to removed, leaves other requirements untouched', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'state/requirements'), { recursive: true });
+  mkdirSync(join(ws, 'state/stories'), { recursive: true });
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-20.md'),
+    '---\nid: REQ-20\ntitle: Cancel me\nstatus: planned\npriority: normal\n---\nbody\n',
+  );
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-21.md'),
+    '---\nid: REQ-21\ntitle: Untouched\nstatus: planned\npriority: normal\n---\nbody\n',
+  );
+  writeFileSync(
+    join(ws, 'state/stories/REQ-20-s1.md'),
+    '---\nid: REQ-20-s1\nrequirement: REQ-20\nrepo: toy\nstatus: building\ndeps: []\noracle: "x"\nbranch: seance/REQ-20-s1\nattempts: 1\n---\n\n## Task\n\nDo a thing.\n\n## Attempts ledger\n',
+  );
+  writeFileSync(
+    join(ws, 'state/stories/REQ-20-s2.md'),
+    '---\nid: REQ-20-s2\nrequirement: REQ-20\nrepo: toy\nstatus: pending\ndeps: []\noracle: "x"\nbranch: seance/REQ-20-s2\nattempts: 0\n---\n\n## Task\n\nDo another thing.\n\n## Attempts ledger\n',
+  );
+  writeFileSync(
+    join(ws, 'state/stories/REQ-21-s1.md'),
+    '---\nid: REQ-21-s1\nrequirement: REQ-21\nrepo: toy\nstatus: building\ndeps: []\noracle: "x"\nbranch: seance/REQ-21-s1\nattempts: 0\n---\n\n## Task\n\nUnrelated.\n\n## Attempts ledger\n',
+  );
+
+  const result = removeRequirement(ws, 'REQ-20');
+  assert.deepEqual(result.storyIds.sort(), ['REQ-20-s1', 'REQ-20-s2']);
+
+  const req20 = readFileSync(join(ws, 'state/requirements/REQ-20.md'), 'utf-8');
+  assert.match(req20, /^status: removed$/m);
+  const s1 = readFileSync(join(ws, 'state/stories/REQ-20-s1.md'), 'utf-8');
+  assert.match(s1, /^status: removed$/m);
+  assert.match(s1, /## Attempts ledger/); // body untouched
+  const s2 = readFileSync(join(ws, 'state/stories/REQ-20-s2.md'), 'utf-8');
+  assert.match(s2, /^status: removed$/m);
+
+  // other requirement and its story are untouched
+  const req21 = readFileSync(join(ws, 'state/requirements/REQ-21.md'), 'utf-8');
+  assert.match(req21, /^status: planned$/m);
+  const other = readFileSync(join(ws, 'state/stories/REQ-21-s1.md'), 'utf-8');
+  assert.match(other, /^status: building$/m);
+
+  assert.throws(() => removeRequirement(ws, 'bad id!'), /invalid requirement id/);
+  assert.throws(() => removeRequirement(ws, 'REQ-99'), /not found/);
+});
+
+test('removeRequirement: guards done and is a safe no-op on an already-removed requirement', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'state/requirements'), { recursive: true });
+  mkdirSync(join(ws, 'state/stories'), { recursive: true });
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-22.md'),
+    '---\nid: REQ-22\ntitle: Done\nstatus: done\npriority: normal\n---\nbody\n',
+  );
+  assert.throws(() => removeRequirement(ws, 'REQ-22'), /REQ-22 is done and cannot be removed/);
+
+  writeFileSync(
+    join(ws, 'state/requirements/REQ-23.md'),
+    '---\nid: REQ-23\ntitle: Already removed\nstatus: removed\npriority: normal\n---\nbody\n',
+  );
+  writeFileSync(
+    join(ws, 'state/stories/REQ-23-s1.md'),
+    '---\nid: REQ-23-s1\nrequirement: REQ-23\nrepo: toy\nstatus: removed\ndeps: []\noracle: "x"\nbranch: seance/REQ-23-s1\nattempts: 0\n---\n\n## Task\n\nx.\n\n## Attempts ledger\n',
+  );
+  assert.doesNotThrow(() => removeRequirement(ws, 'REQ-23'));
+  assert.doesNotThrow(() => removeRequirement(ws, 'REQ-23'));
+  const req23 = readFileSync(join(ws, 'state/requirements/REQ-23.md'), 'utf-8');
+  assert.equal((req23.match(/status: removed/g) ?? []).length, 1);
+});
+
+test('agentsForRequirement: selects via requirement (planner) and via story->requirement (builder/critic), excludes others', () => {
+  const agents = [
+    { id: 'planner-1', role: 'planner', pid: 1, story: null, requirement: 'REQ-30' },
+    { id: 'builder-1', role: 'builder', pid: 2, story: 'REQ-30-s1', requirement: null },
+    { id: 'critic-1', role: 'critic', pid: 3, story: 'REQ-30-s2', requirement: null },
+    { id: 'planner-2', role: 'planner', pid: 4, story: null, requirement: 'REQ-31' },
+    { id: 'builder-2', role: 'builder', pid: 5, story: 'REQ-31-s1', requirement: null },
+    { id: 'builder-3', role: 'builder', pid: 6, story: 'unrelated-story', requirement: null },
+  ];
+  const stories = [
+    { id: 'REQ-30-s1', requirement: 'REQ-30' },
+    { id: 'REQ-30-s2', requirement: 'REQ-30' },
+    { id: 'REQ-31-s1', requirement: 'REQ-31' },
+  ];
+  const selected = agentsForRequirement(agents, stories, 'REQ-30');
+  assert.deepEqual(
+    selected.map((a) => a.id).sort(),
+    ['builder-1', 'critic-1', 'planner-1'],
+  );
+});
+
+test('reapAgents: moves registry files to journal/agents/, calls kill with each pid, idempotent on re-fire', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'seance-ws-'));
+  mkdirSync(join(ws, 'state/agents'), { recursive: true });
+  writeFileSync(
+    join(ws, 'state/agents/builder-1.md'),
+    '---\nid: builder-1\nrole: builder\npid: 4242\nstory: REQ-40-s1\nrequirement: null\nstarted_at: 2026-07-06T10:00:00Z\n---\n',
+  );
+  writeFileSync(
+    join(ws, 'state/agents/planner-1.md'),
+    '---\nid: planner-1\nrole: planner\npid: 4343\nstory: null\nrequirement: REQ-40\nstarted_at: 2026-07-06T10:00:00Z\n---\n',
+  );
+
+  const killedPids = [];
+  reapAgents(ws, ['builder-1', 'planner-1'], (pid) => killedPids.push(pid));
+
+  assert.deepEqual(killedPids.sort(), [4242, 4343]);
+  assert.ok(!existsSync(join(ws, 'state/agents/builder-1.md')));
+  assert.ok(!existsSync(join(ws, 'state/agents/planner-1.md')));
+  assert.ok(existsSync(join(ws, 'journal/agents/builder-1.md')));
+  assert.ok(existsSync(join(ws, 'journal/agents/planner-1.md')));
+
+  // second call: files already moved — skipped, not thrown, kill not re-invoked
+  assert.doesNotThrow(() => reapAgents(ws, ['builder-1', 'planner-1'], (pid) => killedPids.push(pid)));
+  assert.equal(killedPids.length, 2);
 });
