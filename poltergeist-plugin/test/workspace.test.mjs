@@ -101,6 +101,33 @@ test('validateConfigModel: rejects broken models', () => {
   assert.ok(validateConfigModel(emptyBranch).some((e) => e === 'repo example-repo: default_branch is invalid'));
 });
 
+test('parseConfig / configToYaml: autonomy round-trips both flags', () => {
+  const m = parseConfig(TEMPLATE + 'autonomy:\n  auto_approve_specs: true\n  auto_merge: true\n');
+  assert.deepEqual(m.autonomy, { auto_approve_specs: true, auto_merge: true });
+  const back = parseConfig(configToYaml(m));
+  assert.deepEqual(back.autonomy, m.autonomy);
+  assert.deepEqual(back.extra, {});
+});
+
+test('parseConfig: no autonomy block defaults both flags false and validates clean', () => {
+  const m = parseConfig('workspace: x\nrepos: {}\n');
+  assert.deepEqual(m.autonomy, { auto_approve_specs: false, auto_merge: false });
+
+  const withRepos = parseConfig(TEMPLATE);
+  assert.deepEqual(withRepos.autonomy, { auto_approve_specs: false, auto_merge: false });
+  assert.deepEqual(validateConfigModel(withRepos), []);
+});
+
+test('validateConfigModel: rejects non-boolean autonomy flags', () => {
+  const m = parseConfig('workspace: x\nrepos: {}\n');
+  m.autonomy.auto_merge = 'yes';
+  assert.ok(validateConfigModel(m).some((e) => /autonomy\.auto_merge must be a boolean/.test(e)));
+
+  const m2 = parseConfig('workspace: x\nrepos: {}\n');
+  m2.autonomy.auto_approve_specs = 'yes';
+  assert.ok(validateConfigModel(m2).some((e) => /autonomy\.auto_approve_specs must be a boolean/.test(e)));
+});
+
 test('parseConfig / configToYaml / validateConfigModel: feature-pr is a valid integration mode', () => {
   const withFeaturePr = TEMPLATE.replace('integration: pr', 'integration: feature-pr');
   const m = parseConfig(withFeaturePr);
