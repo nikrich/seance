@@ -23,6 +23,7 @@ const { homedir } = require('node:os');
 const { join, resolve } = require('node:path');
 const { readWorkspaceStatus, pidAlive, dismissAttention, answerQuestion, writeSpec, ackFeaturePr } = require('./lib/state-files.cjs');
 const { parseFrontmatter } = require('./lib/state-files.cjs');
+const { readOverview } = require('./lib/overview.cjs');
 const { buildActivity } = require('./lib/activity.cjs');
 const { createChat } = require('./lib/chat.cjs');
 const { withClaudePath } = require('./lib/spawn-env.cjs');
@@ -98,6 +99,9 @@ function activate(ctx) {
       heartbeat: heartbeatStatus(ctx, ws),
     };
   });
+
+  ctx.ipc.handle('overview', () =>
+    readOverview(SEANCE_ROOT, { heartbeats: readHeartbeats(ctx), now: Date.now() }));
 
   ctx.ipc.handle('summon', (wsPath, req) => {
     const ws = assertWorkspace(wsPath);
