@@ -20,7 +20,7 @@ description: Use ONLY when invoked as the Séance manager tick ("run exactly one
 - Story (`state/stories/<id>.md`) frontmatter: `id, requirement, repo, status: pending|building|verifying|approved|merged|pr_open|blocked, deps: [], oracle, branch, attempts, model_hint`.
 - Agent registry (`state/agents/<agent-id>.md`) frontmatter: `id, role: planner|builder|critic, pid, story, requirement, started_at (ISO8601 UTC), model`.
 - Question (`questions/*.md`) frontmatter: `id, story, requirement, status, asked_at` — written by planners/builders/critics per "The knowledge chain", resolved by the human in Poltergeist.
-- `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes; optional `inbox_feeds: [..]` drained in step 1.
+- `config.yaml`: `repos.<name>.*`, `max_builders`, `max_critics`, `max_planner`, `max_agent_minutes`, `attempt_cap`, `models.*`, `sleep.active`, `sleep.idle`. Optional `paused_repos: [..]` maintained by you from steering notes; optional `inbox_feeds: [..]` drained in step 1. Optional `autonomy.auto_approve_specs` (absent → `false`) — read in step 5.
 
 ## Tick order
 
@@ -120,16 +120,36 @@ A story referenced by any `status: open` question is NOT eligible to spawn.
 
 ### 5. Spawn planner
 
+First, read `autonomy.auto_approve_specs` from `config.yaml` (absent →
+`false`).
+
+If `autonomy.auto_approve_specs` is `true`: for every requirement sitting at
+`status: spec_review`, auto-approve it UNLESS either hard stop applies —
+these are unchanged by the flag and never auto-advanced: it has a
+`blocked_reason`, or a `questions/*.md` with `status: open` names it. The
+flag means "a human isn't required to click approve," never "advance
+anything that's stuck." To auto-approve: stamp
+`spec_approved_at: <ISO8601 UTC now>` in its frontmatter, set
+`status: planning`, and append to the requirement body a line
+`## Auto-approved (<ts>)` noting the approval was automatic — granted by
+the `autonomy.auto_approve_specs` flag, not a human — so the requirement's
+history makes the automatic approval unambiguous. Do this for every eligible
+`spec_review` requirement this tick (a frontmatter edit, not a spawn); each
+then becomes eligible for the `planning` branch below in the same tick.
+
 If live planners < `max_planner`, spawn for the highest-priority eligible
 requirement, choosing the prompt by status:
 
 - `status: speccing` (and no `blocked_reason`) → prompt
   `"Invoke the seance-planner skill to DRAFT THE SPEC for requirement <id>."`
 - `status: inbox` (legacy, pre-spec-gate) → treat exactly like `speccing`: same DRAFT THE SPEC prompt, and set the requirement's status to `speccing` when you spawn it.
-- `status: planning` (spec approved by the human; and no `blocked_reason`) → prompt
+- `status: planning` (spec approved — by a human, or automatically above;
+  and no `blocked_reason`) → prompt
   `"Invoke the seance-planner skill to DECOMPOSE requirement <id> per its approved spec."`
 
-`spec_review` requirements are waiting on the human — never spawn for them.
+When `autonomy.auto_approve_specs` is `false` or absent, none of the above
+auto-approval runs: `spec_review` requirements are waiting on the human —
+never spawn for them, exactly as today.
 
 ```bash
 AGENT_ID="planner-<req-id>-$RANDOM"
