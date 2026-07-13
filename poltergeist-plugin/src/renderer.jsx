@@ -1448,6 +1448,267 @@ function NoWorkspace({ theme, onCreate }) {
   );
 }
 
+// ---- overview / dashboard --------------------------------------------------
+
+// lane tone -> token, reusing the board's COLUMNS vocabulary so the overview
+// bar reads the same as the per-workspace board.
+function laneColor(theme, tone) {
+  return {
+    outline: theme.ink2, neon: theme.neon, fog: theme.ink1, moss: theme.moss, oxblood: theme.oxblood,
+  }[tone] ?? theme.ink2;
+}
+
+const NEEDS_YOU_META = {
+  attention: [AlertTriangle, 'needs you', 'oxblood'],
+  spec_review: [ScanEye, 'spec review', 'neon'],
+  question: [MessageSquare, 'question', 'neon'],
+  feature_pr: [GitBranch, 'feature PR', 'moss'],
+};
+
+function StatTile({ theme, label, value, tone }) {
+  const accent = tone === 'neon' ? theme.neonInk
+    : tone === 'moss' ? theme.pillMossFg
+      : tone === 'oxblood' ? theme.pillOxbloodFg
+        : theme.ink0;
+  return (
+    <div style={{
+      background: theme.vellum, border: `1px solid ${theme.hairline}`, borderRadius: theme.rMd,
+      padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0,
+    }}>
+      <Eyebrow theme={theme}>{label}</Eyebrow>
+      <span style={{ fontFamily: theme.fontMono, fontSize: 23, fontWeight: 600, lineHeight: 1, color: accent }}>{value}</span>
+    </div>
+  );
+}
+
+// compact segmented bar of the five lanes; segments are proportional to counts
+function LaneBar({ theme, lanes }) {
+  const total = COLUMNS.reduce((n, c) => n + (lanes?.[c.key] ?? 0), 0);
+  return (
+    <div style={{ display: 'flex', height: 6, borderRadius: theme.rPill, overflow: 'hidden', background: theme.fog, gap: total > 0 ? 2 : 0 }}>
+      {total > 0 && COLUMNS.map((c) => (lanes[c.key] > 0 ? (
+        <div key={c.key} title={`${c.label} · ${lanes[c.key]}`}
+          style={{ flexGrow: lanes[c.key], flexBasis: 0, background: laneColor(theme, c.tone) }} />
+      ) : null))}
+    </div>
+  );
+}
+
+function LaneCounts({ theme, lanes }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+      {COLUMNS.map((c) => (
+        <span key={c.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: theme.fontMono, fontSize: 11, color: theme.ink2 }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: laneColor(theme, c.tone), flexShrink: 0 }} />
+          {c.label}
+          <span style={{ color: (lanes?.[c.key] ?? 0) > 0 ? theme.ink0 : theme.ink3, fontWeight: 600 }}>{lanes?.[c.key] ?? 0}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceCard({ theme, ws, onEnter }) {
+  const [hover, setHover] = useState(false);
+
+  if (ws.error) {
+    return (
+      <button type="button" onClick={() => onEnter(ws.path, 'board')}
+        onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+        style={{
+          textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+          background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`,
+          borderRadius: theme.rLg, padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 8,
+          opacity: hover ? 0.92 : 1, transition: 'opacity 120ms',
+        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <HeartCrack size={14} color={theme.oxblood} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: theme.ink0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</span>
+          <span style={{ flex: 1 }} />
+          <Pill theme={theme} tone="oxblood">unreadable</Pill>
+        </div>
+        <span style={{ fontFamily: theme.fontMono, fontSize: 11, color: theme.pillOxbloodFg, overflowWrap: 'anywhere', lineHeight: 1.45 }}>{ws.error}</span>
+      </button>
+    );
+  }
+
+  const dot = ws.healthy ? theme.neon : ws.running ? theme.oxblood : theme.ink3;
+  const health = ws.healthy ? 'healthy' : ws.running ? 'stale' : 'stopped';
+  return (
+    <button type="button" onClick={() => onEnter(ws.path, 'board')}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      style={{
+        textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+        background: theme.vellum, border: `1px solid ${hover ? theme.hairline3 : theme.hairline}`,
+        borderRadius: theme.rLg, padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 11,
+        transition: 'border-color 120ms',
+      }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+        <span className={ws.healthy ? 'seance-pulse' : undefined}
+          style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: theme.ink0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ws.name}</span>
+        <span style={{ flex: 1 }} />
+        <span title={health} style={{ fontFamily: theme.fontMono, fontSize: 10.5, color: ws.healthy ? theme.ink2 : theme.pillOxbloodFg, whiteSpace: 'nowrap' }}>
+          tick {relTime(ws.lastTickTs)}
+        </span>
+      </div>
+
+      <LaneBar theme={theme} lanes={ws.lanes} />
+      <LaneCounts theme={theme} lanes={ws.lanes} />
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+        <Pill theme={theme} tone={ws.liveAgents > 0 ? 'neon' : 'outline'}>
+          {ws.liveAgents > 0 && <span className="seance-dot" style={{ width: 5, height: 5, borderRadius: '50%', background: theme.neon }} />}
+          {ws.liveAgents} live
+        </Pill>
+        {ws.requirementsInFlight > 0 && <Pill theme={theme} tone="fog">{ws.requirementsInFlight} in flight</Pill>}
+        <span style={{ flex: 1 }} />
+        {ws.blocked > 0 && <Pill theme={theme} tone="oxblood">{ws.blocked} blocked</Pill>}
+        {ws.needsYou > 0 && <Pill theme={theme} tone="neon">{ws.needsYou} needs you</Pill>}
+      </div>
+    </button>
+  );
+}
+
+function NeedsYouStrip({ theme, items, onEnter }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Sparkles size={12} color={theme.neon} />
+        <Eyebrow theme={theme}>needs you · {items.length}</Eyebrow>
+      </div>
+      {items.map((it, i) => {
+        const [Icon, label, tone] = NEEDS_YOU_META[it.kind] ?? [AlertTriangle, it.kind, 'oxblood'];
+        const color = tone === 'neon' ? theme.neonInk : tone === 'moss' ? theme.pillMossFg : theme.pillOxbloodFg;
+        return (
+          <button key={`${it.path}-${it.kind}-${it.id}-${i}`} type="button"
+            onClick={() => onEnter(it.path, it.tab ?? 'board')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', width: '100%', cursor: 'pointer',
+              background: theme.vellum, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rMd,
+              padding: '9px 13px', fontFamily: 'inherit',
+            }}>
+            <Icon size={14} color={color} style={{ flexShrink: 0 }} />
+            <Pill theme={theme} tone={tone}>{label}</Pill>
+            <span style={{ fontSize: 12.5, color: theme.ink0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {it.title || it.id}
+            </span>
+            <span style={{ flex: 1 }} />
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: theme.fontMono, fontSize: 10.5, color: theme.ink2, whiteSpace: 'nowrap' }}>
+              {it.workspace}
+              <ArrowRight size={12} color={theme.ink3} />
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AllQuiet({ theme }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center',
+      background: theme.vellum, border: `1px solid ${theme.hairline}`, borderRadius: theme.rLg, padding: '30px 24px',
+    }}>
+      <Moon size={22} color={theme.ink2} className="seance-float" />
+      <div style={{ fontSize: 13.5, fontWeight: 600, color: theme.ink0 }}>all quiet</div>
+      <div style={{ fontSize: 12.5, color: theme.ink2, maxWidth: 420, lineHeight: 1.5 }}>
+        the fleet is resting — no agents running, no lanes active, nothing waiting on you. summon a requirement in any workspace to wake it.
+      </div>
+    </div>
+  );
+}
+
+function OverviewSkeleton({ theme }) {
+  const block = (h) => (
+    <div style={{ background: theme.vellum, border: `1px solid ${theme.hairline}`, borderRadius: theme.rMd, height: h }} />
+  );
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
+        {[0, 1, 2, 3, 4].map((i) => <div key={i}>{block(74)}</div>)}
+      </div>
+      {block(64)}
+      <SkeletonNote theme={theme} text="reading the fleet…" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+        {[0, 1, 2].map((i) => <div key={i}>{block(150)}</div>)}
+      </div>
+    </div>
+  );
+}
+
+function Overview({ theme, api, onEnter }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setData(await api.ipc.invoke('overview'));
+      setError(null);
+    } catch (e) {
+      setError(String(e?.message ?? e));
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void refresh();
+    // refresh on the existing per-workspace change events plus a periodic
+    // re-aggregate; a dedicated cross-workspace watcher is out of scope.
+    const off = api.ipc.on('changed', () => void refresh());
+    const t = setInterval(() => void refresh(), 12000);
+    return () => { off(); clearInterval(t); };
+  }, [api, refresh]);
+
+  if (!data && error) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: theme.oxbloodMist, border: `1px solid ${theme.oxblood}`,
+        borderRadius: theme.rMd, padding: '11px 15px', fontSize: 12.5, color: theme.pillOxbloodFg,
+      }}>
+        <AlertTriangle size={14} color={theme.oxblood} style={{ flexShrink: 0 }} />
+        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>could not read the fleet — {error}</span>
+      </div>
+    );
+  }
+  if (!data) return <OverviewSkeleton theme={theme} />;
+
+  const { totals, needsYou, workspaces } = data;
+  const active = totals.liveAgents + totals.needsYou + totals.requirementsInFlight
+    + totals.lanes.backlog + totals.lanes.building + totals.lanes.verifying + totals.lanes.blocked;
+  const quiet = active === 0;
+
+  return (
+    <div className="seance-scroll-col" style={{ display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', minHeight: 0, paddingBottom: 4 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12 }}>
+        <StatTile theme={theme} label="workspaces" value={totals.workspaces} />
+        <StatTile theme={theme} label="healthy" value={totals.healthy} tone={totals.healthy > 0 ? 'moss' : undefined} />
+        <StatTile theme={theme} label="live agents" value={totals.liveAgents} tone={totals.liveAgents > 0 ? 'neon' : undefined} />
+        <StatTile theme={theme} label="in flight" value={totals.requirementsInFlight} />
+        <StatTile theme={theme} label="needs you" value={totals.needsYou} tone={totals.needsYou > 0 ? 'neon' : undefined} />
+      </div>
+
+      <Panel theme={theme} title="stories" subtitle="across the fleet">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+          <LaneBar theme={theme} lanes={totals.lanes} />
+          <LaneCounts theme={theme} lanes={totals.lanes} />
+        </div>
+      </Panel>
+
+      {needsYou.length > 0 ? (
+        <NeedsYouStrip theme={theme} items={needsYou} onEnter={onEnter} />
+      ) : quiet ? (
+        <AllQuiet theme={theme} />
+      ) : null}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+        {workspaces.map((w) => <WorkspaceCard key={w.path} theme={theme} ws={w} onEnter={onEnter} />)}
+      </div>
+    </div>
+  );
+}
+
 function App({ api }) {
   const theme = useTheme(api);
   const [workspaces, setWorkspaces] = useState(null); // null = loading
@@ -1458,6 +1719,7 @@ function App({ api }) {
   const [steerText, setSteerText] = useState('');
   const [notice, setNotice] = useState(null);
   const [tab, setTab] = useState('board');
+  const [scope, setScope] = useState('overview');        // 'overview' | 'workspace'
   const [creating, setCreating] = useState(false);       // create view open?
   const [createBusy, setCreateBusy] = useState(false);
   const [createError, setCreateError] = useState(null);
@@ -1469,7 +1731,7 @@ function App({ api }) {
       const r = await api.ipc.invoke('workspace:create', name, config);
       const list = await api.ipc.invoke('workspaces:list');
       setWorkspaces(list);
-      setSnap(null); setWs(r.wsPath); setCreating(false);
+      setSnap(null); setWs(r.wsPath); setCreating(false); setScope('workspace');
       const allOk = !r.clones?.some((c) => !c.ok);
       if (allOk) {
         setTab('board'); setCreateClones(null);
@@ -1492,21 +1754,28 @@ function App({ api }) {
 
   useEffect(() => {
     let alive = true;
-    // restore the last workspace + tab so navigating away and back doesn't
-    // dump the user on the board of the first workspace
+    // restore the last workspace + tab + scope so navigating away and back
+    // lands the user exactly where they were: inside a workspace on its tab,
+    // or on the overview.
     Promise.all([
       api.ipc.invoke('workspaces:list'),
       api.settings.get('lastWorkspace').catch(() => null),
       api.settings.get('lastTab').catch(() => null),
-    ]).then(([list, lastWs, lastTab]) => {
+      api.settings.get('lastScope').catch(() => null),
+    ]).then(([list, lastWs, lastTab, lastScope]) => {
       if (!alive) return;
       setWorkspaces(list);
       if (typeof lastTab === 'string' && ['board', 'hood', 'chat', 'config'].includes(lastTab)) {
         setTab(lastTab);
       }
-      if (list.length) {
-        const saved = list.find((w) => w.path === lastWs);
-        setWs((cur) => cur ?? (saved ? saved.path : list[0].path));
+      const saved = list.length ? list.find((w) => w.path === lastWs) : null;
+      // only land inside a workspace when the saved scope says so AND that
+      // workspace still exists; otherwise fall back to the overview.
+      if (lastScope === 'workspace' && saved) {
+        setWs((cur) => cur ?? saved.path);
+        setScope('workspace');
+      } else {
+        setScope('overview');
       }
     }).catch((e) => {
       setWorkspaces([]);
@@ -1521,6 +1790,19 @@ function App({ api }) {
   useEffect(() => {
     void Promise.resolve(api.settings.set('lastTab', tab)).catch(() => {});
   }, [tab, api]);
+  useEffect(() => {
+    void Promise.resolve(api.settings.set('lastScope', scope)).catch(() => {});
+  }, [scope, api]);
+
+  // enter a workspace from an overview card or a needs-you item — sets the
+  // selected workspace (+ tab) and flips scope; all three are then persisted.
+  const enterWorkspace = (path, nextTab) => {
+    setSnap(null);
+    setWs(path);
+    if (nextTab) setTab(nextTab);
+    setScope('workspace');
+  };
+  const goToOverview = () => setScope('overview');
 
   useEffect(() => {
     if (!ws) return;
@@ -1558,25 +1840,40 @@ function App({ api }) {
     <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 0, color: theme.ink0, fontFamily: 'inherit', height: '100%', boxSizing: 'border-box' }}>
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 14 }}>
-        <span style={{ fontFamily: theme.fontDisplay, fontSize: 17, fontWeight: 600, letterSpacing: '-0.02em' }}>séance</span>
-        {!noWorkspace && workspaces !== null && (
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            background: theme.vellum, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rMd,
-            padding: '5px 8px 5px 11px',
-          }}>
-            <GitBranch size={13} color={theme.neon} />
-            <select
-              value={ws ?? ''}
-              onChange={(e) => { setSnap(null); setWs(e.target.value); }}
-              style={{
-                background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer',
-                color: theme.ink0, fontFamily: theme.fontMono, fontSize: 12, maxWidth: 220,
-              }}
-            >
-              {workspaces.map((w) => <option key={w.path} value={w.path}>{w.name}</option>)}
-            </select>
-          </span>
+        <button
+          type="button"
+          onClick={goToOverview}
+          title={!noWorkspace && scope === 'workspace' ? 'back to all workspaces' : undefined}
+          style={{
+            background: 'transparent', border: 'none', padding: 0,
+            fontFamily: theme.fontDisplay, fontSize: 17, fontWeight: 600, letterSpacing: '-0.02em',
+            color: theme.ink0, cursor: !noWorkspace && scope === 'workspace' ? 'pointer' : 'default',
+          }}
+        >séance</button>
+        {!noWorkspace && workspaces !== null && scope === 'overview' && (
+          <Eyebrow theme={theme}>overview</Eyebrow>
+        )}
+        {!noWorkspace && workspaces !== null && scope === 'workspace' && (
+          <>
+            <Btn theme={theme} variant="ghost" icon={<LayoutGrid size={13} />} onClick={goToOverview}>overview</Btn>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              background: theme.vellum, border: `1px solid ${theme.hairline2}`, borderRadius: theme.rMd,
+              padding: '5px 8px 5px 11px',
+            }}>
+              <GitBranch size={13} color={theme.neon} />
+              <select
+                value={ws ?? ''}
+                onChange={(e) => { setSnap(null); setWs(e.target.value); }}
+                style={{
+                  background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer',
+                  color: theme.ink0, fontFamily: theme.fontMono, fontSize: 12, maxWidth: 220,
+                }}
+              >
+                {workspaces.map((w) => <option key={w.path} value={w.path}>{w.name}</option>)}
+              </select>
+            </span>
+          </>
         )}
         {workspaces !== null && (
           <Btn theme={theme} variant="ghost" onClick={() => setCreating(true)}>+ new</Btn>
@@ -1610,6 +1907,8 @@ function App({ api }) {
         </div>
       ) : noWorkspace ? (
         <NoWorkspace theme={theme} onCreate={() => setCreating(true)} />
+      ) : scope === 'overview' ? (
+        <Overview theme={theme} api={api} onEnter={enterWorkspace} />
       ) : (
         <>
           {/* tabs */}
