@@ -42,13 +42,15 @@ autonomy:
   auto_approve_specs: false  # true: manager auto-approves specs (spec_review → planning) with no human click
   auto_merge: false          # true: critic merges PRs it would otherwise leave open (pr / feature-pr repos; merge repos already autonomous)
 
-# Model per role (claude CLI aliases). Judgment roles get the strong model.
+# Model per role (claude CLI aliases: haiku | sonnet | opus | fable).
 # The manager tick carries real routing logic (spec gate, dep eligibility,
 # question lifecycle) — haiku has been observed spawning builders whose deps
 # weren't ready; sonnet is the safe default.
+# fable is the strongest (and priciest) tier — best spent on the planner,
+# whose spec drafts and story decomposition steer everything downstream.
 models:
   manager: sonnet
-  planner: opus
+  planner: fable
   builder: sonnet
   critic: opus
 
