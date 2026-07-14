@@ -1,0 +1,32 @@
+name: Dispatch Token Canary
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify SEANCE_DISPATCH_TOKEN is valid
+        env:
+          SEANCE_DISPATCH_TOKEN: ${{ secrets.SEANCE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$SEANCE_DISPATCH_TOKEN" ]; then
+            echo "::error::SEANCE_DISPATCH_TOKEN is unset or empty; the marketplace publish dispatch will fail. See docs/runbooks/seance-dispatch-token-rotation.md to provision it."
+            exit 1
+          fi
+
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $SEANCE_DISPATCH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/nikrich/poltergeist-plugins)
+
+          if [ "$status" != "200" ]; then
+            echo "::error::Token canary failed: HTTP $status — SEANCE_DISPATCH_TOKEN is invalid or expired; rotate it (see docs/runbooks/seance-dispatch-token-rotation.md)"
+            exit 1
+          fi
+
+          echo "SEANCE_DISPATCH_TOKEN is valid (HTTP 200)."
