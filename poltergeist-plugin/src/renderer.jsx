@@ -178,7 +178,7 @@ const BLANK_CONFIG = {
   inbox_feeds: [],
   autonomy: { auto_approve_specs: false, auto_merge: false },
 };
-const MODEL_OPTIONS = ['haiku', 'sonnet', 'opus'];
+const MODEL_OPTIONS = ['haiku', 'sonnet', 'opus', 'fable'];
 const repoNameFromUrl = (url) => (url.split('/').pop() ?? '').replace(/\.git$/, '').trim();
 
 function Field({ theme, label, children, width }) {
